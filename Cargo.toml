@@ -1,0 +1,14 @@
+[package]
+name = "mdrs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+iced = { version = "0.14", default-features = false, features = ["advanced", "image", "markdown", "highlighter", "thread-pool", "wayland", "wgpu", "x11"] }
+iced_runtime = "0.14"
+log = "0.4"
+notify = "8.2"
+pulldown-cmark = "0.13"
+rfd = "0.18"
+syntect = "5"
+two-face = "0.5"

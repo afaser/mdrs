@@ -2,8 +2,11 @@ use iced::widget::{container, markdown, scrollable, text};
 use iced::{Element, Length};
 
 use crate::app::program::SCROLL_ID;
-use crate::app::{Message, Program};
+use crate::app::{Message, Program, WheelScroll};
 use crate::theme;
+
+pub const TEXT_SIZE: f32 = 17.0;
+pub const TEXT_LINE_HEIGHT: f32 = 24.0;
 
 pub fn view(program: &Program) -> Element<'_, Message> {
     let body = match program.gpu_state().software_name() {
@@ -31,20 +34,27 @@ fn content(program: &Program) -> Element<'_, Message> {
 
     program.viewer().set_epoch(program.selection_epoch());
 
-    scrollable(markdown::view_with(
+    let document = scrollable(markdown::view_with(
         article.items(),
         settings(),
         program.viewer(),
     ))
     .id(SCROLL_ID)
+    .direction(scrollable::Direction::Vertical(
+        scrollable::Scrollbar::default()
+            .width(8.0)
+            .scroller_width(6.0)
+            .spacing(8.0),
+    ))
     .width(Length::Fill)
     .height(Length::Fill)
-    .on_scroll(Message::Scrolled)
-    .into()
+    .on_scroll(Message::Scrolled);
+
+    WheelScroll::new(document).into()
 }
 
 fn settings() -> markdown::Settings {
-    let mut settings = markdown::Settings::with_text_size(17.0, theme::markdown_style());
+    let mut settings = markdown::Settings::with_text_size(TEXT_SIZE, theme::markdown_style());
     settings.code_size = iced::Pixels(14.0);
 
     settings

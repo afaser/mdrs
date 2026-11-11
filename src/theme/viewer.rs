@@ -117,7 +117,8 @@ where
                 scrollable::Direction::Horizontal(
                     scrollable::Scrollbar::default()
                         .width(settings.code_size / 2.0)
-                        .scroller_width(settings.code_size / 2.0),
+                        .scroller_width(settings.code_size / 2.0)
+                        .spacing(settings.code_size / 4.0),
                 ),
             ),
         )

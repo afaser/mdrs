@@ -43,6 +43,10 @@ pub fn update(program: &mut Program, message: Message) -> Task<Message> {
             program.remember_scroll(viewport);
             Task::none()
         }
+        Message::ScrollFrame(now) => match program.frame(now) {
+            Some(offset) => scroll_to(offset),
+            None => Task::none(),
+        },
         Message::Selected(Some(selection)) => {
             program.set_selection(Some(selection));
             Task::none()
@@ -51,15 +55,21 @@ pub fn update(program: &mut Program, message: Message) -> Task<Message> {
             program.clear_selections();
             Task::none()
         }
+        Message::Wheeled(delta) => {
+            program.wheel(delta);
+            Task::none()
+        }
     }
 }
 
 fn open_document(program: &mut Program, path: std::path::PathBuf) -> Task<Message> {
+    program.stop_scroll();
     program.open(path);
     scroll_to(AbsoluteOffset::default())
 }
 
 fn reload(program: &mut Program) -> Task<Message> {
+    program.stop_scroll();
     program.reload();
     let offset = program.scroll();
 

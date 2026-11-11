@@ -1,5 +1,7 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
+use iced::mouse::ScrollDelta;
 use iced::widget::markdown::Uri;
 use iced::widget::scrollable::Viewport;
 
@@ -17,7 +19,9 @@ pub enum Message {
     Redrawn,
     Reload,
     Scrolled(Viewport),
+    ScrollFrame(Instant),
     Selected(Option<String>),
+    Wheeled(ScrollDelta),
 }
 
 impl From<Uri> for Message {

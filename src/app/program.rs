@@ -6,6 +6,7 @@ use iced::{Subscription, Task};
 
 use crate::app::Content;
 use crate::app::Message;
+use crate::app::Scroll;
 use crate::app::gpu::{self, GpuState};
 use crate::app::startup::Startup;
 use crate::open::Dialog;
@@ -20,7 +21,7 @@ pub struct Program {
     viewer: Viewer,
     startup: Option<Startup>,
     gpu: GpuState,
-    scroll: AbsoluteOffset,
+    scroll: Scroll,
     dialog: Dialog,
     selection: Option<String>,
     selection_epoch: u64,
@@ -42,7 +43,7 @@ impl Program {
             viewer: Viewer::new(),
             startup: Some(startup),
             gpu: GpuState::Unknown,
-            scroll: AbsoluteOffset::default(),
+            scroll: Scroll::new(),
             dialog: Dialog::default(),
             selection: None,
             selection_epoch: 0,
@@ -75,6 +76,11 @@ impl Program {
         } else {
             Subscription::none()
         };
+        let scroll = if self.scrolling() {
+            iced::window::frames().map(Message::ScrollFrame)
+        } else {
+            Subscription::none()
+        };
 
         Subscription::batch([
             iced::keyboard::listen().filter_map(keyboard_event),
@@ -82,6 +88,7 @@ impl Program {
             startup,
             watcher,
             dialog,
+            scroll,
         ])
     }
 
@@ -100,7 +107,7 @@ impl Program {
     pub fn open(&mut self, path: PathBuf) {
         self.content = Content::open(path.clone());
         self.watcher = Some(FileWatcher::new(path));
-        self.scroll = AbsoluteOffset::default();
+        self.scroll.reset();
         self.clear_selections();
     }
 
@@ -119,11 +126,27 @@ impl Program {
     }
 
     pub fn remember_scroll(&mut self, viewport: Viewport) {
-        self.scroll = viewport.absolute_offset();
+        self.scroll.remember(viewport);
     }
 
     pub fn scroll(&self) -> AbsoluteOffset {
-        self.scroll
+        self.scroll.offset()
+    }
+
+    pub fn wheel(&mut self, delta: iced::mouse::ScrollDelta) {
+        self.scroll.wheel(delta);
+    }
+
+    pub fn frame(&mut self, now: Instant) -> Option<AbsoluteOffset> {
+        self.scroll.frame(now)
+    }
+
+    pub fn scrolling(&self) -> bool {
+        self.scroll.moving()
+    }
+
+    pub fn stop_scroll(&mut self) {
+        self.scroll.stop();
     }
 
     pub fn selection(&self) -> Option<&str> {

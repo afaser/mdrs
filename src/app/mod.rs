@@ -4,13 +4,17 @@ mod logging;
 mod message;
 mod program;
 mod run;
+mod scroll;
 mod startup;
 mod update;
 mod view;
+mod wheel_scroll;
 
 pub use content::Content;
 pub use message::Message;
 pub use program::Program;
 pub use run::run;
+pub use scroll::Scroll;
 pub use update::update;
 pub use view::view;
+pub use wheel_scroll::WheelScroll;

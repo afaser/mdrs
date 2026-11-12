@@ -1,12 +1,20 @@
+use std::time::Instant;
+
 use iced::Task;
 use iced::widget::scrollable::AbsoluteOffset;
 
-use crate::app::gpu;
-use crate::app::program::SCROLL_ID;
+use crate::app::gpu::{self, GpuCheck};
+use crate::app::view::SCROLL_ID;
 use crate::app::{Message, Program};
 use crate::open;
 
 pub fn update(program: &mut Program, message: Message) -> Task<Message> {
+    let task = handle(program, message);
+    program.sync_viewer_generation();
+    task
+}
+
+fn handle(program: &mut Program, message: Message) -> Task<Message> {
     match message {
         Message::Choose => {
             program.request_dialog();
@@ -14,6 +22,19 @@ pub fn update(program: &mut Program, message: Message) -> Task<Message> {
         }
         Message::ClearSelections => {
             program.clear_selections();
+            Task::none()
+        }
+        Message::CopyCode { code, id } => {
+            program.viewer_mut().copied(id, Instant::now());
+            iced::clipboard::write(code)
+        }
+        Message::CopyHover { id, hovered } => {
+            program.viewer_mut().hovered(id, hovered, Instant::now());
+            Task::none()
+        }
+        Message::AnimationFrame(now) => {
+            program.viewer_mut().tick_copy(now);
+            program.viewer_mut().tick_hover(now);
             Task::none()
         }
         Message::CopySelection => match program.selection() {
@@ -29,13 +50,13 @@ pub fn update(program: &mut Program, message: Message) -> Task<Message> {
             open::launch(&url);
             Task::none()
         }
-        Message::Picked(Some(path)) => {
+        Message::Picked(path) => {
             program.finish_dialog();
-            open_document(program, path)
-        }
-        Message::Picked(None) => {
-            program.finish_dialog();
-            Task::none()
+
+            match path {
+                Some(path) => open_document(program, path),
+                None => Task::none(),
+            }
         }
         Message::Redrawn => first_frame(program),
         Message::Reload => reload(program),
@@ -48,7 +69,7 @@ pub fn update(program: &mut Program, message: Message) -> Task<Message> {
             None => Task::none(),
         },
         Message::Selected(Some(selection)) => {
-            program.set_selection(Some(selection));
+            program.set_selection(selection);
             Task::none()
         }
         Message::Selected(None) => {
@@ -56,14 +77,13 @@ pub fn update(program: &mut Program, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::Wheeled(delta) => {
-            program.wheel(delta);
+            program.wheel(delta, Instant::now());
             Task::none()
         }
     }
 }
 
 fn open_document(program: &mut Program, path: std::path::PathBuf) -> Task<Message> {
-    program.stop_scroll();
     program.open(path);
     scroll_to(AbsoluteOffset::default())
 }
@@ -81,11 +101,12 @@ fn scroll_to(offset: AbsoluteOffset) -> Task<Message> {
 }
 
 fn first_frame(program: &mut Program) -> Task<Message> {
-    program.finish_startup();
-
-    if program.begin_gpu_check() {
-        return Task::perform(async { gpu::detect() }, Message::Gpu);
+    if program.finish_startup().is_some() {
+        std::process::exit(0);
     }
 
-    Task::none()
+    match program.begin_gpu_check() {
+        GpuCheck::Started => Task::perform(async { gpu::detect() }, Message::Gpu),
+        GpuCheck::Skipped => Task::none(),
+    }
 }

@@ -1,3 +1,5 @@
+const BROWSER_PREFIXES: [&str; 2] = ["http://", "https://"];
+
 pub fn launch(uri: &str) {
     if !is_browser_link(uri) {
         return;
@@ -13,7 +15,9 @@ pub fn launch(uri: &str) {
 }
 
 fn is_browser_link(uri: &str) -> bool {
-    uri.starts_with("http://") || uri.starts_with("https://")
+    BROWSER_PREFIXES
+        .iter()
+        .any(|prefix| uri.starts_with(prefix))
 }
 
 #[cfg(test)]

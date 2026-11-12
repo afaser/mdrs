@@ -1,37 +1,33 @@
 use std::time::Instant;
 
-pub struct Startup {
+pub(super) struct Startup {
     started: Instant,
-    enabled: bool,
 }
 
 impl Startup {
-    pub fn new(started: Instant) -> Self {
-        Self {
-            started,
-            enabled: std::env::var_os("MDRS_STARTUP")
-                .is_some_and(|value| value.to_str() == Some("1")),
+    pub(super) fn new(started: Instant) -> Option<Self> {
+        if !measurement_requested() {
+            return None;
         }
+
+        Some(Self { started })
     }
 
-    pub fn mark(&self, label: &str) {
-        if !self.enabled {
-            return;
-        }
-
+    pub(super) fn mark(&self, label: &str) {
         eprintln!("{label}: {:.2} ms", self.elapsed_ms());
     }
 
-    pub fn finish(self) {
-        if !self.enabled {
-            return;
-        }
-
-        eprintln!("first-frame: {:.2} ms", self.elapsed_ms());
-        std::process::exit(0);
+    pub(super) fn finish(self) -> f32 {
+        let elapsed = self.elapsed_ms();
+        eprintln!("first-frame: {elapsed:.2} ms");
+        elapsed
     }
 
-    fn elapsed_ms(&self) -> f64 {
-        self.started.elapsed().as_secs_f64() * 1000.0
+    fn elapsed_ms(&self) -> f32 {
+        self.started.elapsed().as_secs_f32() * 1000.0
     }
+}
+
+fn measurement_requested() -> bool {
+    std::env::var_os("MDRS_STARTUP").is_some_and(|value| value.to_str() == Some("1"))
 }

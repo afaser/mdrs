@@ -1,21 +1,24 @@
-use iced::widget::{container, markdown, scrollable, text};
+use iced::widget::markdown::Uri;
+use iced::widget::text::Span;
+use iced::widget::{container, markdown, rich_text, scrollable};
 use iced::{Element, Length};
 
-use crate::app::program::SCROLL_ID;
 use crate::app::{Message, Program, WheelScroll};
 use crate::theme;
 
-pub const TEXT_SIZE: f32 = 17.0;
-pub const TEXT_LINE_HEIGHT: f32 = 24.0;
+pub(super) const SCROLL_ID: &str = "document";
 
 pub fn view(program: &Program) -> Element<'_, Message> {
     let body = match program.gpu_state().software_name() {
-        Some(name) => message(format!("Программный рендер не поддерживается: {name}")),
+        Some(name) => message(
+            program,
+            format!("Программный рендер не поддерживается: {name}"),
+        ),
         None => content(program),
     };
 
     container(body)
-        .padding(24)
+        .padding(program.config().window.padding)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
@@ -25,27 +28,26 @@ fn content(program: &Program) -> Element<'_, Message> {
     let content = program.content();
 
     if let Some(path) = content.failed_path() {
-        return message(format!("Не удалось открыть файл: {}", path.display()));
+        return message(
+            program,
+            format!("Не удалось открыть файл: {}", path.display()),
+        );
     }
 
     let Some(article) = content.article() else {
-        return message("Откройте markdown-файл: Ctrl+O".to_owned());
+        return message(program, "Откройте markdown-файл: Ctrl+O".to_owned());
     };
 
-    program.viewer().set_epoch(program.selection_epoch());
-
+    let config = program.config();
+    let bar = &config.scrollbars.document;
     let document = scrollable(markdown::view_with(
         article.items(),
-        settings(),
+        theme::markdown_settings(config, program.fonts()),
         program.viewer(),
     ))
     .id(SCROLL_ID)
-    .direction(scrollable::Direction::Vertical(
-        scrollable::Scrollbar::default()
-            .width(8.0)
-            .scroller_width(6.0)
-            .spacing(8.0),
-    ))
+    .direction(scrollable::Direction::Vertical(bar.vertical()))
+    .style(theme::scrollbar_style(config, bar))
     .width(Length::Fill)
     .height(Length::Fill)
     .on_scroll(Message::Scrolled);
@@ -53,17 +55,27 @@ fn content(program: &Program) -> Element<'_, Message> {
     WheelScroll::new(document).into()
 }
 
-fn settings() -> markdown::Settings {
-    let mut settings = markdown::Settings::with_text_size(TEXT_SIZE, theme::markdown_style());
-    settings.code_size = iced::Pixels(14.0);
+fn message(program: &Program, value: String) -> Element<'static, Message> {
+    let config = program.config();
 
-    settings
-}
+    let font = program
+        .fonts()
+        .role_font(
+            &config.text.message,
+            config.text.message.weight,
+            iced::font::Style::Normal,
+        )
+        .unwrap_or_else(|| program.fonts().default_font(&config.text.message.fonts));
+    let letter_spacing = (config.text.message.letter_spacing > 0.0)
+        .then_some(iced::Pixels(config.text.message.letter_spacing));
+    let span: Span<'static, Uri> = Span::new(value)
+        .font(font)
+        .size(config.text.message.size)
+        .color(config.text.message.color.resolve(&config.palette));
+    let span = match letter_spacing {
+        Some(letter_spacing) => span.letter_spacing(letter_spacing),
+        None => span,
+    };
 
-fn message(value: String) -> Element<'static, Message> {
-    text(value)
-        .font(theme::regular())
-        .size(18)
-        .color(theme::DANGER)
-        .into()
+    rich_text(vec![span]).into()
 }

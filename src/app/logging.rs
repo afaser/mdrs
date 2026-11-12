@@ -1,10 +1,12 @@
-use log::{Level, LevelFilter, Log, Metadata, Record};
+use log::{Level, Log, Metadata, Record};
+
+const LEVEL: Level = Level::Info;
 
 struct Stderr;
 
 impl Log for Stderr {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Info
+        metadata.level() <= LEVEL
     }
 
     fn log(&self, record: &Record) {
@@ -18,12 +20,12 @@ impl Log for Stderr {
 
 static LOGGER: Stderr = Stderr;
 
-pub fn init() {
+pub(super) fn init() {
     if std::env::var_os("MDRS_LOG").is_none() {
         return;
     }
 
     if log::set_logger(&LOGGER).is_ok() {
-        log::set_max_level(LevelFilter::Info);
+        log::set_max_level(LEVEL.to_level_filter());
     }
 }

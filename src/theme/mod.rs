@@ -1,12 +1,16 @@
-mod catppuccin;
+mod application;
+mod code_block;
 mod font;
-mod highlight;
-mod palette;
+mod font_metrics;
+mod frame;
+mod highlighter;
 mod style;
+mod styler;
 mod viewer;
+mod viewer_text;
 
-pub use catppuccin::catppuccin;
-pub use font::{BYTES, isolate_system_fonts, regular};
-pub use palette::DANGER;
-pub use style::markdown_style;
-pub use viewer::Viewer;
+pub use application::theme;
+pub use font::{FontBook, LoadedFonts, isolate_system_fonts};
+pub use font_metrics::{FontMetrics, FontMetricsBook};
+pub use style::{markdown_settings, scrollbar_style};
+pub use viewer::{CodeCopy, CopyHover, Viewer};

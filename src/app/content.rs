@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use crate::document::Document;
 use crate::markdown::Article;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum Content {
+    #[default]
     Empty,
     Ready {
         document: Document,
@@ -74,6 +75,12 @@ mod tests {
         path
     }
 
+    fn temporary_bytes(name: &str, content: &[u8]) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("mdrs-content-{}-{name}", std::process::id()));
+        fs::write(&path, content).expect("fixture file");
+        path
+    }
+
     #[test]
     fn existing_file_opens_ready() {
         let path = temporary("ready.md", "# title\n\nbody");
@@ -111,5 +118,18 @@ mod tests {
         assert!(matches!(reloaded, Content::Ready { .. }));
         assert_eq!(reloaded.path(), Some(path.as_path()));
         assert!(!reloaded.article().expect("article").items().is_empty());
+    }
+
+    #[test]
+    fn invalid_utf8_file_opens_failed() {
+        let path = temporary_bytes("invalid.md", &[0xff, 0xfe]);
+
+        let content = Content::open(path.clone());
+
+        assert!(matches!(content, Content::Failed(_)));
+        assert_eq!(content.failed_path(), Some(path.as_path()));
+        assert!(content.article().is_none());
+
+        let _ = fs::remove_file(path);
     }
 }

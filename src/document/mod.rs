@@ -1,3 +1,4 @@
-mod source;
+#[allow(clippy::module_inception)]
+mod document;
 
-pub use source::Document;
+pub use document::Document;

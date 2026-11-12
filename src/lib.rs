@@ -1,4 +1,5 @@
 mod app;
+mod config;
 mod document;
 mod markdown;
 mod open;

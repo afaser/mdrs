@@ -1,79 +1,62 @@
 use std::sync::Arc;
 
-use iced::advanced::graphics::text::Paragraph as TextParagraph;
-use iced::advanced::graphics::text::cosmic_text::Cursor;
 use iced::advanced::layout;
 use iced::advanced::mouse;
 use iced::advanced::renderer;
-use iced::advanced::text::{self, Alignment, LineHeight, Paragraph as _, Shaping, Text, Wrapping};
+use iced::advanced::text::{Alignment, LineHeight, Shaping, Wrapping};
 use iced::advanced::widget::{Widget, tree};
-use iced::advanced::{Clipboard, Shell};
-use iced::advanced::{Layout, Renderer as _};
+use iced::advanced::{Clipboard, Layout, Renderer as _, Shell};
 use iced::widget::markdown::Uri;
 use iced::widget::text::{self as widget_text, Span, Style};
 use iced::{
     Background, Color, Element, Event, Font, Length, Pixels, Point, Rectangle, Size, Vector,
 };
 
-use crate::selection::Selection;
+use crate::selection::decoration::{self, Decoration, LineRule};
+use crate::selection::generation::Generation;
+use crate::selection::state::{Release, TextState};
+use crate::selection::text_layout::TextConfig;
 
-const DRAG_THRESHOLD: f32 = 3.0;
+#[derive(Debug, Clone, Copy)]
+pub struct TextColors {
+    pub text: Color,
+    pub selection: Color,
+}
 
 pub struct SelectableText<'a, Message> {
     spans: Arc<[Span<'static, Uri>]>,
     size: Pixels,
     font: Font,
     line_height: LineHeight,
-    align_x: Alignment,
-    align_y: iced::alignment::Vertical,
     wrapping: Wrapping,
-    width: Length,
-    height: Length,
-    color: Color,
-    selection_color: Color,
-    epoch: u64,
+    colors: TextColors,
+    generation: Generation,
+    decoration: Decoration,
+    shaping: Shaping,
     on_link_click: Option<Box<dyn Fn(Uri) -> Message + 'a>>,
     on_selection: Option<Box<dyn Fn(Option<String>) -> Message + 'a>>,
 }
 
 impl<'a, Message> SelectableText<'a, Message> {
-    pub fn new(spans: Arc<[Span<'static, Uri>]>, size: Pixels, font: Font) -> Self {
+    pub fn new(
+        spans: Arc<[Span<'static, Uri>]>,
+        size: Pixels,
+        font: Font,
+        colors: TextColors,
+    ) -> Self {
         Self {
             spans,
             size,
             font,
             line_height: LineHeight::default(),
-            align_x: Alignment::Left,
-            align_y: iced::alignment::Vertical::Top,
             wrapping: Wrapping::default(),
-            width: Length::Shrink,
-            height: Length::Shrink,
-            color: Color::BLACK,
-            selection_color: Color::from_rgb8(0x45, 0x47, 0x5a),
-            epoch: 0,
+            colors,
+            generation: Generation::default(),
+            decoration: Decoration::default(),
+            shaping: Shaping::default(),
             on_link_click: None,
             on_selection: None,
         }
-    }
-
-    pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
-        self
-    }
-
-    pub fn selection_color(mut self, color: Color) -> Self {
-        self.selection_color = color;
-        self
-    }
-
-    pub fn width(mut self, width: Length) -> Self {
-        self.width = width;
-        self
-    }
-
-    pub fn height(mut self, height: Length) -> Self {
-        self.height = height;
-        self
     }
 
     pub fn wrapping(mut self, wrapping: Wrapping) -> Self {
@@ -81,8 +64,23 @@ impl<'a, Message> SelectableText<'a, Message> {
         self
     }
 
-    pub fn epoch(mut self, epoch: u64) -> Self {
-        self.epoch = epoch;
+    pub fn line_height(mut self, line_height: LineHeight) -> Self {
+        self.line_height = line_height;
+        self
+    }
+
+    pub fn generation(mut self, generation: Generation) -> Self {
+        self.generation = generation;
+        self
+    }
+
+    pub fn decoration(mut self, decoration: Decoration) -> Self {
+        self.decoration = decoration;
+        self
+    }
+
+    pub fn shaping(mut self, shaping: Shaping) -> Self {
+        self.shaping = shaping;
         self
     }
 
@@ -97,98 +95,42 @@ impl<'a, Message> SelectableText<'a, Message> {
     }
 }
 
-#[derive(Default)]
-struct State {
-    paragraph: TextParagraph,
-    spans: Vec<Span<'static, Uri>>,
-    selection: Selection,
-    drag: Option<Drag>,
-    hovered: Option<usize>,
-    epoch: u64,
-}
-
-struct Drag {
-    origin: Point,
-    link: Option<usize>,
-    moved: bool,
-}
-
 impl<'a, Message> Widget<Message, iced::Theme, iced::Renderer> for SelectableText<'a, Message>
 where
     Message: 'a,
 {
     fn tag(&self) -> tree::Tag {
-        tree::Tag::of::<State>()
+        tree::Tag::of::<TextState>()
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(State::default())
+        tree::State::new(TextState::default())
     }
 
     fn size(&self) -> Size<Length> {
-        Size::new(self.width, self.height)
+        Size::new(Length::Shrink, Length::Shrink)
     }
 
     fn layout(
         &mut self,
         tree: &mut tree::Tree,
-        renderer: &iced::Renderer,
+        _renderer: &iced::Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        let state = tree.state.downcast_mut::<State>();
+        let state = tree.state.downcast_mut::<TextState>();
+        state.sync_generation(self.generation);
 
-        if state.epoch != self.epoch {
-            state.selection.clear();
-            state.drag = None;
-            state.epoch = self.epoch;
-        }
-
-        layout::sized(limits, self.width, self.height, |limits| {
+        layout::sized(limits, Length::Shrink, Length::Shrink, |limits| {
             let bounds = limits.max();
-            let text = || Text {
-                content: self.spans.as_ref(),
-                bounds,
-                size: self.size,
-                line_height: self.line_height,
-                font: self.font,
-                align_x: self.align_x,
-                align_y: self.align_y,
-                shaping: Shaping::Advanced,
-                wrapping: self.wrapping,
-            };
-
-            if state.spans.as_slice() != self.spans.as_ref() {
-                state.paragraph = TextParagraph::with_spans(text());
-                state.spans = self.spans.as_ref().to_vec();
-                state.selection.clear();
-                state.drag = None;
-            } else {
-                match state.paragraph.compare(Text {
-                    content: (),
-                    bounds,
-                    size: self.size,
-                    line_height: self.line_height,
-                    font: self.font,
-                    align_x: self.align_x,
-                    align_y: self.align_y,
-                    shaping: Shaping::Advanced,
-                    wrapping: self.wrapping,
-                }) {
-                    text::Difference::None => {}
-                    text::Difference::Bounds => {
-                        state.paragraph.resize(bounds);
-                    }
-                    text::Difference::Shape => {
-                        state.paragraph = TextParagraph::with_spans(text());
-                        state.selection.clear();
-                        state.drag = None;
-                    }
-                }
-            }
-
-            let _ = renderer;
-
-            state.paragraph.min_bounds()
+            let config = TextConfig::new(
+                self.size,
+                self.font,
+                self.line_height,
+                self.wrapping,
+                self.shaping,
+            );
+            state.sync_layout(config, &self.spans, bounds);
+            state.min_bounds()
         })
     }
 
@@ -206,31 +148,32 @@ where
             return;
         }
 
-        let state = tree.state.downcast_ref::<State>();
-        let anchor =
-            layout
-                .bounds()
-                .anchor(state.paragraph.min_bounds(), self.align_x, self.align_y);
+        let state = tree.state.downcast_ref::<TextState>();
+        let anchor = layout.bounds().anchor(
+            state.min_bounds(),
+            Alignment::Left,
+            iced::alignment::Vertical::Top,
+        );
         let translation = anchor - Point::ORIGIN;
 
-        for bounds in state.selection.bounds(state.paragraph.buffer()) {
+        for bounds in state.selection_bounds() {
             renderer.fill_quad(
                 renderer::Quad {
                     bounds: bounds + translation,
                     ..renderer::Quad::default()
                 },
-                Background::Color(self.selection_color),
+                Background::Color(self.colors.selection),
             );
         }
 
         for (index, span) in self.spans.iter().enumerate() {
-            let hovered = self.on_link_click.is_some() && Some(index) == state.hovered;
+            let hovered = self.on_link_click.is_some() && Some(index) == state.hovered_span();
 
             if span.highlight.is_none() && !span.underline && !span.strikethrough && !hovered {
                 continue;
             }
 
-            let regions = state.paragraph.span_bounds(index);
+            let regions = state.span_bounds(index);
 
             if let Some(highlight) = span.highlight {
                 for bounds in &regions {
@@ -253,40 +196,34 @@ where
                 let size = span.size.unwrap_or(self.size);
                 let line_height = span
                     .line_height
-                    .unwrap_or(self.line_height)
+                    .unwrap_or(LineHeight::default())
                     .to_absolute(size);
-                let color = span.color.unwrap_or(self.color);
+                let color = span.color.unwrap_or(self.colors.text);
                 let baseline =
                     translation + Vector::new(0.0, size.0 + (line_height.0 - size.0) / 2.0);
 
                 if span.underline || hovered {
-                    for bounds in &regions {
-                        renderer.fill_quad(
-                            renderer::Quad {
-                                bounds: Rectangle::new(
-                                    bounds.position() + baseline - Vector::new(0.0, size.0 * 0.08),
-                                    Size::new(bounds.width, 1.0),
-                                ),
-                                ..renderer::Quad::default()
-                            },
-                            color,
-                        );
-                    }
+                    decoration::draw(
+                        renderer,
+                        &regions,
+                        baseline,
+                        size.0,
+                        color,
+                        LineRule::Underline,
+                        self.decoration,
+                    );
                 }
 
                 if span.strikethrough {
-                    for bounds in &regions {
-                        renderer.fill_quad(
-                            renderer::Quad {
-                                bounds: Rectangle::new(
-                                    bounds.position() + baseline - Vector::new(0.0, size.0 / 2.0),
-                                    Size::new(bounds.width, 1.0),
-                                ),
-                                ..renderer::Quad::default()
-                            },
-                            color,
-                        );
-                    }
+                    decoration::draw(
+                        renderer,
+                        &regions,
+                        baseline,
+                        size.0,
+                        color,
+                        LineRule::Strikethrough,
+                        self.decoration,
+                    );
                 }
             }
         }
@@ -295,9 +232,9 @@ where
             renderer,
             defaults,
             layout.bounds(),
-            &state.paragraph,
+            state.paragraph(),
             Style {
-                color: Some(self.color),
+                color: Some(self.colors.text),
             },
             viewport,
         );
@@ -314,92 +251,75 @@ where
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
-        let state = tree.state.downcast_mut::<State>();
-        let inside = cursor.position_in(layout.bounds());
-        let position = cursor.position().map(|position| {
-            let bounds = layout.bounds().position();
-
-            Point::new(position.x - bounds.x, position.y - bounds.y)
-        });
+        let state = tree.state.downcast_mut::<TextState>();
 
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                let Some(point) = inside else {
-                    state.selection.clear();
+                let Some(point) = cursor.position_in(layout.bounds()) else {
+                    state.selection_clear();
                     return;
                 };
 
-                let Some(cursor) = cursor_at(&state.paragraph, layout.bounds().size(), point)
-                else {
-                    state.selection.clear();
+                let Some(text_cursor) = state.cursor_at(layout.bounds().size(), point) else {
+                    state.selection_clear();
                     return;
                 };
 
-                state.selection = Selection::new(cursor, cursor);
-                state.drag = Some(Drag {
-                    origin: point,
-                    link: hovered_link(&state.paragraph, &self.spans, point),
-                    moved: false,
-                });
+                let link_span = state.hit_link(&self.spans, point);
+                state.press(point, text_cursor, link_span);
 
                 if let Some(on_selection) = &self.on_selection {
                     shell.publish(on_selection(None));
-                    state.epoch = self.epoch.wrapping_add(1);
                 }
 
                 shell.capture_event();
                 shell.request_redraw();
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
-                if let Some(drag) = &mut state.drag {
-                    let Some(point) = position else {
+                if state.dragging() {
+                    let Some(point) = relative_point(cursor, layout.bounds()) else {
                         return;
                     };
 
-                    if !drag.moved && point.distance(drag.origin) > DRAG_THRESHOLD {
-                        drag.moved = true;
-                    }
+                    let Some(text_cursor) = state.cursor_at(layout.bounds().size(), point) else {
+                        return;
+                    };
 
-                    if drag.moved
-                        && let Some(cursor) =
-                            cursor_at(&state.paragraph, layout.bounds().size(), point)
-                    {
-                        state.selection.extend(cursor);
-                        state.hovered = None;
-                        shell.request_redraw();
-                    }
-                } else {
-                    let hovered =
-                        inside.and_then(|point| hovered_link(&state.paragraph, &self.spans, point));
+                    state.extend(point, text_cursor);
+                    shell.request_redraw();
+                    return;
+                }
 
-                    if hovered != state.hovered {
-                        state.hovered = hovered;
-                        shell.request_redraw();
-                    }
+                let link_span = cursor
+                    .position_in(layout.bounds())
+                    .and_then(|point| state.hit_link(&self.spans, point));
+
+                if state.hover(link_span) {
+                    shell.request_redraw();
                 }
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                let Some(drag) = state.drag.take() else {
+                let Some(release) = state.release() else {
                     return;
                 };
 
-                if drag.moved {
-                    if let Some(on_selection) = &self.on_selection {
-                        let text = state.selection.text(state.paragraph.buffer());
-
-                        shell.publish(on_selection(text));
+                match release {
+                    Release::Selected { text } => {
+                        if let Some(on_selection) = &self.on_selection {
+                            shell.publish(on_selection(text));
+                        }
                     }
-                } else {
-                    state.selection.clear();
+                    Release::Click { link_span } => {
+                        if let Some(on_selection) = &self.on_selection {
+                            shell.publish(on_selection(None));
+                        }
 
-                    if let Some(on_selection) = &self.on_selection {
-                        shell.publish(on_selection(None));
-                    }
-
-                    if let (Some(index), Some(on_link_click)) = (drag.link, &self.on_link_click)
-                        && let Some(link) = self.spans.get(index).and_then(|span| span.link.clone())
-                    {
-                        shell.publish(on_link_click(link));
+                        if let (Some(index), Some(on_link_click)) = (link_span, &self.on_link_click)
+                            && let Some(link) =
+                                self.spans.get(index).and_then(|span| span.link.clone())
+                        {
+                            shell.publish(on_link_click(link));
+                        }
                     }
                 }
 
@@ -417,35 +337,19 @@ where
         _viewport: &Rectangle,
         _renderer: &iced::Renderer,
     ) -> mouse::Interaction {
-        let state = tree.state.downcast_ref::<State>();
+        let state = tree.state.downcast_ref::<TextState>();
 
-        if state.hovered.is_some() {
-            mouse::Interaction::Pointer
-        } else {
-            mouse::Interaction::Text
+        match state.hovered_span() {
+            Some(_) => mouse::Interaction::Pointer,
+            None => mouse::Interaction::Text,
         }
     }
 }
 
-fn cursor_at(paragraph: &TextParagraph, bounds: Size, point: Point) -> Option<Cursor> {
-    if bounds.width <= 0.0 || bounds.height <= 0.0 {
-        return None;
-    }
+fn relative_point(cursor: mouse::Cursor, bounds: Rectangle) -> Option<Point> {
+    let position = cursor.position()?;
 
-    let x = point.x.clamp(0.0, bounds.width - 0.01);
-    let y = point.y.clamp(0.0, bounds.height - 0.01);
-
-    paragraph.buffer().hit(x, y)
-}
-
-fn hovered_link(
-    paragraph: &TextParagraph,
-    spans: &[Span<'static, Uri>],
-    point: Point,
-) -> Option<usize> {
-    paragraph
-        .hit_span(point)
-        .filter(|index| spans.get(*index).is_some_and(|span| span.link.is_some()))
+    Some(Point::new(position.x - bounds.x, position.y - bounds.y))
 }
 
 impl<'a, Message> From<SelectableText<'a, Message>>

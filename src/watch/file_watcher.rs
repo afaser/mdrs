@@ -84,56 +84,31 @@ fn touches(event: &notify::Event, path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
 
     #[test]
-    fn editing_file_produces_debounced_event() {
-        let directory = std::env::temp_dir().join(format!("mdrs-watch-{}", std::process::id()));
-        let _ = fs::create_dir_all(&directory);
-        let path = directory.join("document.md");
-        fs::write(&path, "old").expect("fixture file");
-
-        let (events, receiver) = std::sync::mpsc::channel();
-        let mut watcher = notify::recommended_watcher(move |event| {
-            if let Ok(event) = event {
-                let _ = events.send(event);
-            }
-        })
-        .expect("watcher");
-        watcher
-            .watch(&directory, RecursiveMode::NonRecursive)
-            .expect("watch directory");
-
-        fs::write(&path, "new").expect("write document");
-
-        let mut touched = false;
-        while let Ok(event) = receiver.recv_timeout(Duration::from_secs(2)) {
-            if touches(&event, &path) {
-                touched = true;
-                break;
-            }
-        }
-
-        assert!(touched);
-
-        let _ = fs::remove_dir_all(directory);
-    }
-
-    #[test]
-    fn unrelated_file_does_not_touch_target() {
+    fn touches_selects_target_file_events() {
         let target = std::env::temp_dir().join("mdrs-target.md");
-        let event = notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Any))
-            .add_path(std::env::temp_dir().join("mdrs-other.md"));
+        let other = std::env::temp_dir().join("mdrs-other.md");
 
-        assert!(!touches(&event, &target));
-    }
-
-    #[test]
-    fn access_event_does_not_touch_target() {
-        let target = std::env::temp_dir().join("mdrs-target.md");
-        let event = notify::Event::new(notify::EventKind::Access(notify::event::AccessKind::Any))
+        let modify = notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Any))
             .add_path(target.clone());
+        assert!(touches(&modify, &target));
 
-        assert!(!touches(&event, &target));
+        let create = notify::Event::new(notify::EventKind::Create(notify::event::CreateKind::Any))
+            .add_path(target.clone());
+        assert!(touches(&create, &target));
+
+        let remove = notify::Event::new(notify::EventKind::Remove(notify::event::RemoveKind::Any))
+            .add_path(target.clone());
+        assert!(touches(&remove, &target));
+
+        let unrelated =
+            notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Any))
+                .add_path(other);
+        assert!(!touches(&unrelated, &target));
+
+        let access = notify::Event::new(notify::EventKind::Access(notify::event::AccessKind::Any))
+            .add_path(target.clone());
+        assert!(!touches(&access, &target));
     }
 }

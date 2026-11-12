@@ -17,17 +17,17 @@ impl<'a> WheelScroll<'a> {
 }
 
 #[derive(Default)]
-struct State {
+struct WheelState {
     modifiers: keyboard::Modifiers,
 }
 
 impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
     fn tag(&self) -> tree::Tag {
-        tree::Tag::of::<State>()
+        tree::Tag::of::<WheelState>()
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(State::default())
+        tree::State::new(WheelState::default())
     }
 
     fn children(&self) -> Vec<Tree> {
@@ -97,7 +97,7 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        let state: &mut State = tree.state.downcast_mut();
+        let state: &mut WheelState = tree.state.downcast_mut();
 
         if let Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) = event {
             state.modifiers = *modifiers;
@@ -105,7 +105,7 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
 
         if let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event
             && cursor.is_over(layout.bounds())
-            && captures_wheel(*delta, state.modifiers.shift())
+            && captures_wheel(*delta, state.modifiers)
         {
             shell.publish(Message::Wheeled(*delta));
             shell.capture_event();
@@ -165,8 +165,14 @@ fn wheel_vertical(delta: mouse::ScrollDelta) -> f32 {
     }
 }
 
-fn captures_wheel(delta: mouse::ScrollDelta, shift: bool) -> bool {
-    wheel_vertical(delta) != 0.0 && !shift
+fn captures_wheel(delta: mouse::ScrollDelta, modifiers: keyboard::Modifiers) -> bool {
+    let vertical = wheel_vertical(delta);
+
+    !is_zero(vertical) && !modifiers.shift()
+}
+
+fn is_zero(value: f32) -> bool {
+    value.abs() <= f32::EPSILON
 }
 
 impl<'a> From<WheelScroll<'a>> for Element<'a, Message> {
@@ -180,34 +186,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vertical_wheel_is_captured() {
+    fn wheel_capture_depends_on_direction_and_shift() {
+        let none = keyboard::Modifiers::default();
+        let shift = keyboard::Modifiers::SHIFT;
+
         assert!(captures_wheel(
             mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 },
-            false
+            none
         ));
         assert!(captures_wheel(
             mouse::ScrollDelta::Pixels { x: 0.0, y: -15.0 },
-            false
+            none
         ));
-    }
-
-    #[test]
-    fn shift_wheel_is_forwarded() {
         assert!(!captures_wheel(
             mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 },
-            true
+            shift
         ));
-    }
-
-    #[test]
-    fn horizontal_wheel_is_forwarded() {
         assert!(!captures_wheel(
             mouse::ScrollDelta::Lines { x: 1.0, y: 0.0 },
-            false
+            none
         ));
         assert!(!captures_wheel(
             mouse::ScrollDelta::Pixels { x: 15.0, y: 0.0 },
-            false
+            none
         ));
+        assert!(!captures_wheel(
+            mouse::ScrollDelta::Lines { x: 0.0, y: 0.0 },
+            none
+        ));
+    }
+
+    #[test]
+    fn diff_preserves_child_tree() {
+        let element: Element<Message> = WheelScroll::new(iced::widget::text("content")).into();
+        let mut tree = Tree::new(&element);
+
+        element.as_widget().diff(&mut tree);
+
+        assert_eq!(tree.children.len(), 1);
     }
 }

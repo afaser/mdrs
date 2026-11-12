@@ -7,15 +7,18 @@ use iced::{Subscription, Task};
 use crate::app::Content;
 use crate::app::Message;
 use crate::app::Scroll;
-use crate::app::gpu::{self, GpuState};
+use crate::app::gpu::{self, GpuCheck, GpuState};
+use crate::app::selection::SelectionState;
 use crate::app::startup::Startup;
+use crate::app::subscription;
+use crate::config::Config;
 use crate::open::Dialog;
-use crate::theme::Viewer;
+use crate::theme::{FontBook, Viewer};
 use crate::watch::FileWatcher;
 
-pub const SCROLL_ID: &str = "document";
-
 pub struct Program {
+    config: Config,
+    fonts: FontBook,
     content: Content,
     watcher: Option<FileWatcher>,
     viewer: Viewer,
@@ -23,36 +26,38 @@ pub struct Program {
     gpu: GpuState,
     scroll: Scroll,
     dialog: Dialog,
-    selection: Option<String>,
-    selection_epoch: u64,
+    selection: SelectionState,
 }
 
 impl Program {
-    pub fn new(started: Instant) -> (Self, Task<Message>) {
-        let content = crate::open::path()
-            .map(Content::open)
-            .unwrap_or(Content::Empty);
+    pub(super) fn new(started: Instant, config: Config, fonts: FontBook) -> (Self, Task<Message>) {
+        let content = argument_path().map(Content::open).unwrap_or(Content::Empty);
         let watcher = content
             .path()
             .map(|path| FileWatcher::new(path.to_path_buf()));
         let startup = Startup::new(started);
-        startup.mark("boot");
+
+        if let Some(startup) = &startup {
+            startup.mark("boot");
+        }
+
         let program = Self {
+            config: config.clone(),
+            fonts: fonts.clone(),
             content,
             watcher,
-            viewer: Viewer::new(),
-            startup: Some(startup),
+            viewer: Viewer::new(config.clone(), fonts),
+            startup,
             gpu: GpuState::Unknown,
-            scroll: Scroll::new(),
+            scroll: Scroll::new(config.motion.wheel),
             dialog: Dialog::default(),
-            selection: None,
-            selection_epoch: 0,
+            selection: SelectionState::default(),
         };
 
         (program, Task::none())
     }
 
-    pub fn title(&self) -> String {
+    pub(super) fn title(&self) -> String {
         let name = self
             .content
             .path()
@@ -65,165 +70,118 @@ impl Program {
         }
     }
 
-    pub fn subscription(&self) -> Subscription<Message> {
-        let watcher = match &self.watcher {
-            Some(watcher) => watcher.subscription().map(|()| Message::Reload),
-            None => Subscription::none(),
-        };
-        let dialog = self.dialog.subscription().map(Message::Picked);
-        let startup = if self.startup.is_some() {
-            iced::event::listen_raw(startup_event)
-        } else {
-            Subscription::none()
-        };
-        let scroll = if self.scrolling() {
-            iced::window::frames().map(Message::ScrollFrame)
-        } else {
-            Subscription::none()
-        };
-
-        Subscription::batch([
-            iced::keyboard::listen().filter_map(keyboard_event),
-            iced::event::listen_raw(program_event),
-            startup,
-            watcher,
-            dialog,
-            scroll,
-        ])
+    pub(super) fn subscription(&self) -> Subscription<Message> {
+        subscription::subscription(self)
     }
 
-    pub fn content(&self) -> &Content {
+    pub(super) fn config(&self) -> &Config {
+        &self.config
+    }
+
+    pub(super) fn fonts(&self) -> &FontBook {
+        &self.fonts
+    }
+
+    pub(super) fn content(&self) -> &Content {
         &self.content
     }
 
-    pub fn viewer(&self) -> &Viewer {
+    pub(super) fn viewer(&self) -> &Viewer {
         &self.viewer
     }
 
-    pub fn gpu_state(&self) -> &GpuState {
+    pub(super) fn viewer_mut(&mut self) -> &mut Viewer {
+        &mut self.viewer
+    }
+
+    pub(super) fn gpu_state(&self) -> &GpuState {
         &self.gpu
     }
 
-    pub fn open(&mut self, path: PathBuf) {
+    pub(super) fn watcher(&self) -> Option<&FileWatcher> {
+        self.watcher.as_ref()
+    }
+
+    pub(super) fn dialog(&self) -> &Dialog {
+        &self.dialog
+    }
+
+    pub(super) fn open(&mut self, path: PathBuf) {
+        self.viewer.clear_cache();
         self.content = Content::open(path.clone());
         self.watcher = Some(FileWatcher::new(path));
         self.scroll.reset();
         self.clear_selections();
     }
 
-    pub fn request_dialog(&mut self) {
+    pub(super) fn request_dialog(&mut self) {
         self.dialog.request();
     }
 
-    pub fn finish_dialog(&mut self) {
+    pub(super) fn finish_dialog(&mut self) {
         self.dialog.finish();
     }
 
-    pub fn reload(&mut self) {
-        let previous = std::mem::replace(&mut self.content, Content::Empty);
+    pub(super) fn reload(&mut self) {
+        self.viewer.clear_cache();
+        let previous = std::mem::take(&mut self.content);
         self.content = previous.reload();
         self.clear_selections();
     }
 
-    pub fn remember_scroll(&mut self, viewport: Viewport) {
+    pub(super) fn remember_scroll(&mut self, viewport: Viewport) {
         self.scroll.remember(viewport);
     }
 
-    pub fn scroll(&self) -> AbsoluteOffset {
+    pub(super) fn scroll(&self) -> AbsoluteOffset {
         self.scroll.offset()
     }
 
-    pub fn wheel(&mut self, delta: iced::mouse::ScrollDelta) {
-        self.scroll.wheel(delta);
+    pub(super) fn wheel(&mut self, delta: iced::mouse::ScrollDelta, now: Instant) {
+        self.scroll.wheel(delta, now);
     }
 
-    pub fn frame(&mut self, now: Instant) -> Option<AbsoluteOffset> {
+    pub(super) fn frame(&mut self, now: Instant) -> Option<AbsoluteOffset> {
         self.scroll.frame(now)
     }
 
-    pub fn scrolling(&self) -> bool {
+    pub(super) fn scrolling(&self) -> bool {
         self.scroll.moving()
     }
 
-    pub fn stop_scroll(&mut self) {
+    pub(super) fn stop_scroll(&mut self) {
         self.scroll.stop();
     }
 
-    pub fn selection(&self) -> Option<&str> {
-        self.selection.as_deref()
+    pub(super) fn selection(&self) -> Option<&str> {
+        self.selection.text()
     }
 
-    pub fn selection_epoch(&self) -> u64 {
-        self.selection_epoch
+    pub(super) fn set_selection(&mut self, selection: String) {
+        self.selection.set(selection);
     }
 
-    pub fn set_selection(&mut self, selection: Option<String>) {
-        self.selection = selection;
+    pub(super) fn clear_selections(&mut self) {
+        self.selection.clear();
     }
 
-    pub fn clear_selections(&mut self) {
-        self.selection = None;
-        self.selection_epoch = self.selection_epoch.wrapping_add(1);
+    pub(super) fn finish_startup(&mut self) -> Option<f32> {
+        self.startup.take().map(Startup::finish)
     }
 
-    pub fn finish_startup(&mut self) {
-        if let Some(startup) = self.startup.take() {
-            startup.finish();
-        }
-    }
-
-    pub fn begin_gpu_check(&mut self) -> bool {
+    pub(super) fn begin_gpu_check(&mut self) -> GpuCheck {
         self.gpu.begin_check()
     }
 
-    pub fn apply_gpu(&mut self, adapter: gpu::Gpu) {
+    pub(super) fn apply_gpu(&mut self, adapter: gpu::Gpu) {
         self.gpu.apply(adapter);
     }
-}
 
-fn keyboard_event(event: iced::keyboard::Event) -> Option<Message> {
-    match event {
-        iced::keyboard::Event::KeyPressed {
-            key: iced::keyboard::Key::Character(character),
-            modifiers,
-            ..
-        } if modifiers.control() && character.as_str().eq_ignore_ascii_case("o") => {
-            Some(Message::Choose)
-        }
-        iced::keyboard::Event::KeyPressed {
-            key: iced::keyboard::Key::Character(character),
-            modifiers,
-            ..
-        } if modifiers.control() && character.as_str().eq_ignore_ascii_case("c") => {
-            Some(Message::CopySelection)
-        }
-        _ => None,
+    pub(super) fn sync_viewer_generation(&mut self) {
+        self.viewer.set_generation(self.selection.generation());
     }
 }
 
-fn startup_event(
-    event: iced::Event,
-    _status: iced::event::Status,
-    _window: iced::window::Id,
-) -> Option<Message> {
-    match event {
-        iced::Event::Window(iced::window::Event::RedrawRequested(_)) => Some(Message::Redrawn),
-        _ => None,
-    }
-}
-
-fn program_event(
-    event: iced::Event,
-    status: iced::event::Status,
-    _window: iced::window::Id,
-) -> Option<Message> {
-    match event {
-        iced::Event::Window(iced::window::Event::FileDropped(path)) => Some(Message::Dropped(path)),
-        iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left))
-            if status == iced::event::Status::Ignored =>
-        {
-            Some(Message::ClearSelections)
-        }
-        _ => None,
-    }
+fn argument_path() -> Option<PathBuf> {
+    std::env::args_os().nth(1).map(PathBuf::from)
 }

@@ -5,7 +5,7 @@ use iced::futures::Stream;
 use iced::futures::channel::mpsc::Sender;
 use iced::futures::future;
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default)]
 pub enum Dialog {
     #[default]
     Idle,
@@ -22,7 +22,7 @@ impl Dialog {
     }
 
     pub fn subscription(&self) -> Subscription<Option<PathBuf>> {
-        if *self == Self::Requested {
+        if matches!(self, Self::Requested) {
             return Subscription::run(stream);
         }
 

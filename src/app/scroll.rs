@@ -3,35 +3,33 @@ use std::time::Instant;
 use iced::mouse::ScrollDelta;
 use iced::widget::scrollable::{AbsoluteOffset, Viewport};
 
-use crate::app::view::TEXT_LINE_HEIGHT;
-
-const LINES_PER_NOTCH: f32 = 8.0;
-const PIXELS_PER_NOTCH: f32 = 15.0;
-const SMOOTHING_SECONDS: f32 = 0.03;
-const SETTLE_DISTANCE: f32 = 0.5;
-const EXTERNAL_DISTANCE: f32 = 0.5;
+use crate::app::motion::Motion;
+use crate::config::Wheel;
 
 #[derive(Debug)]
 pub struct Scroll {
     offset: AbsoluteOffset,
     limit: f32,
     motion: Option<Motion>,
+    wheel: Wheel,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct Motion {
-    position: f32,
-    target: f32,
-    issued: f32,
-    last_frame: Instant,
-}
-
-impl Scroll {
-    pub fn new() -> Self {
+impl Default for Scroll {
+    fn default() -> Self {
         Self {
             offset: AbsoluteOffset::default(),
             limit: 0.0,
             motion: None,
+            wheel: Wheel::default(),
+        }
+    }
+}
+
+impl Scroll {
+    pub fn new(wheel: Wheel) -> Self {
+        Self {
+            wheel,
+            ..Self::default()
         }
     }
 
@@ -44,12 +42,14 @@ impl Scroll {
     }
 
     pub fn reset(&mut self) {
-        *self = Self::new();
+        self.offset = AbsoluteOffset::default();
+        self.limit = 0.0;
+        self.motion = None;
     }
 
     pub fn stop(&mut self) {
         if let Some(motion) = self.motion.take() {
-            self.offset.y = motion.issued;
+            self.offset.y = motion.issued();
         }
     }
 
@@ -57,28 +57,24 @@ impl Scroll {
         self.remember_offset(viewport.absolute_offset(), vertical_limit(viewport));
     }
 
-    pub fn wheel(&mut self, delta: ScrollDelta) {
-        let distance = wheel_distance(delta);
+    pub fn wheel(&mut self, delta: ScrollDelta, now: Instant) {
+        let distance = wheel_distance(delta, self.wheel);
 
-        if distance == 0.0 {
+        if is_zero(distance) {
             return;
         }
 
-        let motion = match self.motion {
-            Some(motion) => Motion {
-                target: self.clamp(motion.target + distance),
-                ..motion
-            },
-            None => Motion {
-                position: self.offset.y,
-                target: self.clamp(self.offset.y + distance),
-                issued: self.offset.y,
-                last_frame: Instant::now(),
-            },
+        let target = match self.motion {
+            Some(motion) => self.clamp(motion.target() + distance),
+            None => self.clamp(self.offset.y + distance),
+        };
+        let motion = match self.motion.take() {
+            Some(motion) => motion.retarget(target),
+            None => Motion::start(self.offset.y, target, now, self.wheel),
         };
 
-        if (motion.target - motion.position).abs() <= SETTLE_DISTANCE {
-            self.offset.y = motion.target;
+        if motion.settled() {
+            self.offset.y = motion.position();
             self.motion = None;
             return;
         }
@@ -87,40 +83,23 @@ impl Scroll {
     }
 
     pub fn frame(&mut self, now: Instant) -> Option<AbsoluteOffset> {
-        let motion = self.motion?;
-        let elapsed = now
-            .saturating_duration_since(motion.last_frame)
-            .as_secs_f32();
-        let factor = 1.0 - (-elapsed / SMOOTHING_SECONDS).exp();
-        let remaining = motion.target - motion.position;
-        let next = motion.position + remaining * factor;
-        let reached = (motion.target - next).abs() <= SETTLE_DISTANCE;
-        let position = if reached { motion.target } else { next };
+        let mut motion = self.motion.take()?;
 
-        self.offset.y = position;
+        self.offset.y = motion.advance(now);
 
-        if reached {
-            self.motion = None;
-        } else {
-            self.motion = Some(Motion {
-                position,
-                issued: position,
-                last_frame: now,
-                ..motion
-            });
+        if motion.settled() {
+            return Some(self.offset);
         }
 
-        Some(AbsoluteOffset {
-            x: self.offset.x,
-            y: position,
-        })
+        self.motion = Some(motion);
+        Some(self.offset)
     }
 
     fn remember_offset(&mut self, offset: AbsoluteOffset, limit: f32) {
         self.limit = limit;
 
         if let Some(motion) = self.motion
-            && (offset.y - motion.issued).abs() > EXTERNAL_DISTANCE
+            && (offset.y - motion.issued()).abs() > self.wheel.external_distance
         {
             self.motion = None;
         }
@@ -136,13 +115,13 @@ impl Scroll {
     }
 }
 
-fn wheel_distance(delta: ScrollDelta) -> f32 {
+fn wheel_distance(delta: ScrollDelta, wheel: Wheel) -> f32 {
     let notches = match delta {
         ScrollDelta::Lines { y, .. } => y,
-        ScrollDelta::Pixels { y, .. } => y / PIXELS_PER_NOTCH,
+        ScrollDelta::Pixels { y, .. } => y / wheel.pixels_per_notch,
     };
 
-    -notches * LINES_PER_NOTCH * TEXT_LINE_HEIGHT
+    -notches * wheel.lines_per_notch * wheel.line_height
 }
 
 fn vertical_limit(viewport: Viewport) -> f32 {
@@ -152,13 +131,17 @@ fn vertical_limit(viewport: Viewport) -> f32 {
     (content.height - bounds.height).max(0.0)
 }
 
+fn is_zero(value: f32) -> bool {
+    value.abs() <= f32::EPSILON
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
     fn ready(limit: f32) -> Scroll {
-        let mut scroll = Scroll::new();
+        let mut scroll = Scroll::new(Wheel::default());
         scroll.remember_offset(AbsoluteOffset { x: 0.0, y: 0.0 }, limit);
         scroll
     }
@@ -168,9 +151,47 @@ mod tests {
         let mut scroll = ready(1000.0);
         let start = Instant::now();
 
-        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 });
+        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, start);
         let offset = scroll
             .frame(start + Duration::from_millis(250))
+            .expect("frame");
+
+        assert_eq!(offset.y, 192.0);
+        assert!(!scroll.moving());
+    }
+
+    #[test]
+    fn configured_wheel_changes_step() {
+        let wheel = Wheel {
+            lines_per_notch: 4.0,
+            line_height: 10.0,
+            ..Wheel::default()
+        };
+        let mut scroll = Scroll::new(wheel);
+        scroll.remember_offset(AbsoluteOffset { x: 0.0, y: 0.0 }, 1000.0);
+        let start = Instant::now();
+
+        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, start);
+        let offset = scroll
+            .frame(start + Duration::from_millis(250))
+            .expect("frame");
+
+        assert_eq!(offset.y, 40.0);
+    }
+
+    #[test]
+    fn zero_smoothing_moves_to_target() {
+        let wheel = Wheel {
+            smoothing: 0.0,
+            ..Wheel::default()
+        };
+        let mut scroll = Scroll::new(wheel);
+        scroll.remember_offset(AbsoluteOffset { x: 0.0, y: 0.0 }, 1000.0);
+        let start = Instant::now();
+
+        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, start);
+        let offset = scroll
+            .frame(start + Duration::from_millis(16))
             .expect("frame");
 
         assert_eq!(offset.y, 192.0);
@@ -182,7 +203,7 @@ mod tests {
         let mut scroll = ready(1000.0);
         let start = Instant::now();
 
-        scroll.wheel(ScrollDelta::Pixels { x: 0.0, y: -15.0 });
+        scroll.wheel(ScrollDelta::Pixels { x: 0.0, y: -15.0 }, start);
         let offset = scroll
             .frame(start + Duration::from_millis(250))
             .expect("frame");
@@ -196,7 +217,7 @@ mod tests {
         scroll.remember_offset(AbsoluteOffset { x: 0.0, y: 500.0 }, 1000.0);
         let start = Instant::now();
 
-        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: 1.0 });
+        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: 1.0 }, start);
         let offset = scroll
             .frame(start + Duration::from_millis(250))
             .expect("frame");
@@ -207,12 +228,12 @@ mod tests {
     #[test]
     fn wheel_at_bounds_creates_no_motion() {
         let mut scroll = ready(0.0);
-        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 });
+        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, Instant::now());
         assert!(!scroll.moving());
         assert_eq!(scroll.offset().y, 0.0);
 
         scroll.remember_offset(AbsoluteOffset { x: 0.0, y: 192.0 }, 192.0);
-        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 });
+        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, Instant::now());
         assert!(!scroll.moving());
         assert_eq!(scroll.offset().y, 192.0);
     }
@@ -222,8 +243,8 @@ mod tests {
         let mut scroll = ready(1000.0);
         let start = Instant::now();
 
-        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 });
-        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 });
+        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, start);
+        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, start);
         let offset = scroll
             .frame(start + Duration::from_millis(250))
             .expect("frame");
@@ -235,7 +256,7 @@ mod tests {
     fn animation_settles_within_expected_time() {
         let mut scroll = ready(1000.0);
         let start = Instant::now();
-        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 });
+        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, start);
 
         let mut now = start;
         let mut elapsed = Duration::ZERO;
@@ -255,9 +276,9 @@ mod tests {
     }
 
     #[test]
-    fn external_viewport_cancels_motion() {
+    fn external_viewport_cancels_motion_and_matching_keeps_it() {
         let mut scroll = ready(1000.0);
-        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 });
+        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, Instant::now());
         scroll.frame(Instant::now() + Duration::from_millis(16));
         assert!(scroll.moving());
 
@@ -265,12 +286,9 @@ mod tests {
 
         assert!(!scroll.moving());
         assert_eq!(scroll.offset().y, 500.0);
-    }
 
-    #[test]
-    fn matching_viewport_keeps_motion() {
         let mut scroll = ready(1000.0);
-        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 });
+        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, Instant::now());
         let issued = scroll
             .frame(Instant::now() + Duration::from_millis(32))
             .expect("frame");
@@ -283,7 +301,7 @@ mod tests {
     #[test]
     fn stop_keeps_issued_position() {
         let mut scroll = ready(1000.0);
-        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 });
+        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, Instant::now());
         let issued = scroll
             .frame(Instant::now() + Duration::from_millis(32))
             .expect("frame");

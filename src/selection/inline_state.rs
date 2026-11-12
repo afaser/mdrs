@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use iced::widget::markdown::Uri;
-use iced::widget::text::Span;
+use crate::markdown::Uri;
+use crate::text::Span;
 use iced::{Point, Size};
 
 use crate::selection::block_source::BlockSource;
@@ -36,7 +36,7 @@ impl InlineState {
 
     pub(super) fn sync_layout(
         &mut self,
-        spans: &Arc<[Span<'static, Uri>]>,
+        spans: &Arc<[Span<'static>]>,
         config: InlineConfig,
         max_width: f32,
     ) -> bool {
@@ -123,7 +123,7 @@ mod tests {
         }
     }
 
-    fn spans() -> Arc<[Span<'static, Uri>]> {
+    fn spans() -> Arc<[Span<'static>]> {
         Arc::from(
             vec![
                 Span::new("alpha ".to_owned()),

@@ -1,6 +1,6 @@
 # mdrs
 
-Нативный просмотрщик markdown на iced 0.14 с GPU-рендером через wgpu/Vulkan.
+Нативный просмотрщик markdown на iced 0.14: собственный markdown- и текстовый слой, GPU-рендер через wgpu/Vulkan.
 
 ## Возможности
 

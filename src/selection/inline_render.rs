@@ -1,7 +1,6 @@
 use iced::advanced::Renderer as _;
 use iced::advanced::graphics::text::cosmic_text::Cursor;
 use iced::advanced::renderer;
-use iced::widget::text::{self as widget_text, Style};
 use iced::{Color, Point, Rectangle, Size, Vector};
 
 use crate::selection::Selection;
@@ -135,7 +134,6 @@ pub(super) fn draw_decorations(
 
 pub(super) fn draw_text(
     renderer: &mut iced::Renderer,
-    defaults: &renderer::Style,
     origin: Point,
     lines: &[Line],
     state: &InlineState,
@@ -163,14 +161,7 @@ pub(super) fn draw_text(
                 continue;
             };
 
-            widget_text::draw(
-                renderer,
-                defaults,
-                bounds,
-                paragraph,
-                Style { color: Some(color) },
-                &clip,
-            );
+            paragraph.draw(renderer, bounds, color, &clip);
         }
     }
 }

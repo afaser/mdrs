@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use iced::widget::markdown::Uri;
+use crate::markdown::Uri;
 
 use crate::app::Gpu;
 use crate::theme::{CodeCopy, CopyHover};

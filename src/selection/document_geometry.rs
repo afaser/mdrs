@@ -419,9 +419,10 @@ mod tests {
     use crate::markdown::SourceIndex;
 
     fn source() -> BlockSource {
-        let text = iced::widget::markdown::parse("alpha\nbeta")
+        let text = crate::markdown::parse("alpha\nbeta")
+            .into_iter()
             .find_map(|item| match item {
-                iced::widget::markdown::Item::Paragraph(text) => Some(text),
+                crate::markdown::Item::Paragraph(text) => Some(text),
                 _ => None,
             })
             .expect("paragraph");
@@ -552,9 +553,10 @@ mod tests {
         let left = BlockSource::from_text(
             0,
             Arc::clone(&index),
-            &iced::widget::markdown::parse("a")
+            &crate::markdown::parse("a")
+                .into_iter()
                 .find_map(|item| match item {
-                    iced::widget::markdown::Item::Paragraph(text) => Some(text),
+                    crate::markdown::Item::Paragraph(text) => Some(text),
                     _ => None,
                 })
                 .expect("left"),
@@ -562,9 +564,10 @@ mod tests {
         let right = BlockSource::from_text(
             4,
             Arc::clone(&index),
-            &iced::widget::markdown::parse("b")
+            &crate::markdown::parse("b")
+                .into_iter()
                 .find_map(|item| match item {
-                    iced::widget::markdown::Item::Paragraph(text) => Some(text),
+                    crate::markdown::Item::Paragraph(text) => Some(text),
                     _ => None,
                 })
                 .expect("right"),

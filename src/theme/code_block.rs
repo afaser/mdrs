@@ -1,6 +1,6 @@
+use crate::markdown::Uri;
 use iced::advanced::text::{Alignment, LineHeight};
 use iced::border::Radius;
-use iced::widget::markdown::Uri;
 use iced::widget::scrollable;
 use iced::widget::{container, mouse_area, row, scrollable as scrollable_widget, space, svg, text};
 use iced::{Background, Border, Color, ContentFit, Element, Font, Length, Pixels, mouse};

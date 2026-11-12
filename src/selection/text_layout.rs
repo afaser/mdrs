@@ -1,47 +1,14 @@
 use std::sync::Arc;
 
-use iced::advanced::graphics::text::Paragraph as TextParagraph;
 use iced::advanced::graphics::text::cosmic_text::{Buffer, Cursor};
-use iced::advanced::text::{self, Alignment, LineHeight, Paragraph as _, Shaping, Text, Wrapping};
-use iced::widget::markdown::Uri;
-use iced::widget::text::Span;
-use iced::{Font, Pixels, Point, Rectangle, Size};
+use iced::{Point, Rectangle, Size};
+
+use crate::text::{Difference, Paragraph, Span, TextConfig};
 
 use crate::selection::block_source::BlockSource;
 use crate::selection::document_geometry::{Glyph, VisualLine};
 
 const CURSOR_INSET: f32 = 0.01;
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct TextConfig {
-    pub(super) size: Pixels,
-    pub(super) font: Font,
-    pub(super) line_height: LineHeight,
-    pub(super) align_x: Alignment,
-    pub(super) align_y: iced::alignment::Vertical,
-    pub(super) wrapping: Wrapping,
-    pub(super) shaping: Shaping,
-}
-
-impl TextConfig {
-    pub(super) fn new(
-        size: Pixels,
-        font: Font,
-        line_height: LineHeight,
-        wrapping: Wrapping,
-        shaping: Shaping,
-    ) -> Self {
-        Self {
-            size,
-            font,
-            line_height,
-            align_x: Alignment::Left,
-            align_y: iced::alignment::Vertical::Top,
-            wrapping,
-            shaping,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LayoutChange {
@@ -52,15 +19,15 @@ pub(super) enum LayoutChange {
 
 #[derive(Default)]
 pub(super) struct TextLayout {
-    paragraph: TextParagraph,
-    spans: Option<Arc<[Span<'static, Uri>]>>,
+    paragraph: Paragraph,
+    spans: Option<Arc<[Span<'static>]>>,
 }
 
 impl TextLayout {
     pub(super) fn sync(
         &mut self,
         config: TextConfig,
-        spans: &Arc<[Span<'static, Uri>]>,
+        spans: &Arc<[Span<'static>]>,
         bounds: Size,
     ) -> LayoutChange {
         if !self.spans_match(spans) {
@@ -68,13 +35,13 @@ impl TextLayout {
             return LayoutChange::Reshaped;
         }
 
-        match self.paragraph.compare(text((), bounds, config)) {
-            text::Difference::None => LayoutChange::Unchanged,
-            text::Difference::Bounds => {
+        match self.paragraph.compare(config, bounds) {
+            Difference::None => LayoutChange::Unchanged,
+            Difference::Bounds => {
                 self.paragraph.resize(bounds);
                 LayoutChange::Resized
             }
-            text::Difference::Shape => {
+            Difference::Shape => {
                 self.rebuild(config, spans, bounds);
                 LayoutChange::Reshaped
             }
@@ -85,7 +52,7 @@ impl TextLayout {
         self.paragraph.buffer()
     }
 
-    pub(super) fn paragraph(&self) -> &TextParagraph {
+    pub(super) fn paragraph(&self) -> &Paragraph {
         &self.paragraph
     }
 
@@ -177,33 +144,15 @@ impl TextLayout {
         self.buffer().hit(x, y)
     }
 
-    fn spans_match(&self, spans: &Arc<[Span<'static, Uri>]>) -> bool {
+    fn spans_match(&self, spans: &Arc<[Span<'static>]>) -> bool {
         self.spans
             .as_ref()
             .is_some_and(|current| Arc::ptr_eq(current, spans))
     }
 
-    fn rebuild(&mut self, config: TextConfig, spans: &Arc<[Span<'static, Uri>]>, bounds: Size) {
-        self.paragraph = TextParagraph::with_spans(text(spans.as_ref(), bounds, config));
+    fn rebuild(&mut self, config: TextConfig, spans: &Arc<[Span<'static>]>, bounds: Size) {
+        self.paragraph = Paragraph::new(spans.as_ref(), config, bounds);
         self.spans = Some(Arc::clone(spans));
-    }
-}
-
-pub(super) fn text<Content>(
-    content: Content,
-    bounds: Size,
-    config: TextConfig,
-) -> Text<Content, Font> {
-    Text {
-        content,
-        bounds,
-        size: config.size,
-        line_height: config.line_height,
-        font: config.font,
-        align_x: config.align_x,
-        align_y: config.align_y,
-        shaping: config.shaping,
-        wrapping: config.wrapping,
     }
 }
 
@@ -220,9 +169,11 @@ mod tests {
     use super::*;
     use crate::markdown::Article;
     use crate::selection::block_source::BlockSource;
-    use iced::advanced::text::LineHeight;
-    use iced::widget::markdown::Item;
-    use iced::widget::text::Span;
+    use iced::advanced::text::{LineHeight, Shaping, Wrapping};
+    use iced::{Font, Pixels};
+
+    use crate::markdown::Item;
+    use crate::text::Span;
 
     fn config() -> TextConfig {
         crate::theme::isolate_system_fonts();
@@ -236,7 +187,7 @@ mod tests {
         )
     }
 
-    fn source(text: &str) -> (Arc<[Span<'static, Uri>]>, BlockSource) {
+    fn source(text: &str) -> (Arc<[Span<'static>]>, BlockSource) {
         let article = Article::parse(text);
         let paragraph = article
             .items()
@@ -248,7 +199,7 @@ mod tests {
             .expect("paragraph");
         let block =
             BlockSource::from_text(paragraph.source().start, article.index().clone(), paragraph);
-        let spans: Arc<[Span<'static, Uri>]> =
+        let spans: Arc<[Span<'static>]> =
             Arc::from(vec![Span::new(text.to_owned())].into_boxed_slice());
 
         (spans, block)

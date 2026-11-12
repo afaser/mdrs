@@ -4,6 +4,7 @@ mod document;
 mod markdown;
 mod open;
 mod selection;
+mod text;
 mod theme;
 mod watch;
 

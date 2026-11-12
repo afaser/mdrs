@@ -2,14 +2,14 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::markdown::Uri;
+use crate::text::Span;
 use iced::advanced::layout;
 use iced::advanced::mouse;
 use iced::advanced::renderer;
 use iced::advanced::text::{Alignment, LineHeight, Shaping, Wrapping};
 use iced::advanced::widget::{Widget, tree};
 use iced::advanced::{Clipboard, Layout, Renderer as _, Shell};
-use iced::widget::markdown::Uri;
-use iced::widget::text::{self as widget_text, Span, Style};
 use iced::{
     Background, Color, Element, Event, Font, Length, Pixels, Point, Rectangle, Size, Vector,
 };
@@ -20,7 +20,7 @@ use crate::selection::document_geometry::DocumentGeometry;
 use crate::selection::document_selection::DocumentSelection;
 use crate::selection::generation::Generation;
 use crate::selection::state::{Press, TextState};
-use crate::selection::text_layout::TextConfig;
+use crate::text::TextConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TextColors {
@@ -43,7 +43,7 @@ impl TextColors {
 }
 
 pub struct SelectableText<'a, Message> {
-    spans: Arc<[Span<'static, Uri>]>,
+    spans: Arc<[Span<'static>]>,
     size: Pixels,
     font: Font,
     line_height: LineHeight,
@@ -60,12 +60,7 @@ pub struct SelectableText<'a, Message> {
 }
 
 impl<'a, Message> SelectableText<'a, Message> {
-    pub fn new(
-        spans: Arc<[Span<'static, Uri>]>,
-        size: Pixels,
-        font: Font,
-        colors: TextColors,
-    ) -> Self {
+    pub fn new(spans: Arc<[Span<'static>]>, size: Pixels, font: Font, colors: TextColors) -> Self {
         Self {
             spans,
             size,
@@ -228,7 +223,7 @@ where
         tree: &tree::Tree,
         renderer: &mut iced::Renderer,
         _theme: &iced::Theme,
-        defaults: &renderer::Style,
+        _defaults: &renderer::Style,
         layout: Layout<'_>,
         _cursor: mouse::Cursor,
         viewport: &Rectangle,
@@ -318,16 +313,9 @@ where
             }
         }
 
-        widget_text::draw(
-            renderer,
-            defaults,
-            layout.bounds(),
-            state.paragraph(),
-            Style {
-                color: Some(self.colors.text),
-            },
-            viewport,
-        );
+        state
+            .paragraph()
+            .draw(renderer, layout.bounds(), self.colors.text, viewport);
     }
 
     fn update(
@@ -469,7 +457,7 @@ mod tests {
     use super::*;
     use crate::config::SelectionHeadings;
     use crate::markdown::Article;
-    use iced::widget::markdown::Item;
+    use crate::markdown::Item;
 
     fn colors() -> TextColors {
         TextColors {
@@ -482,7 +470,7 @@ mod tests {
         }
     }
 
-    fn text(article: &Article) -> iced::widget::markdown::Text {
+    fn text(article: &Article) -> crate::markdown::Text {
         article
             .items()
             .iter()

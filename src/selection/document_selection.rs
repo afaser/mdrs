@@ -230,7 +230,7 @@ mod tests {
             .items()
             .iter()
             .filter_map(|item| match item {
-                iced::widget::markdown::Item::Paragraph(text) => Some(BlockSource::from_text(
+                crate::markdown::Item::Paragraph(text) => Some(BlockSource::from_text(
                     text.source().start,
                     article.index().clone(),
                     text,

@@ -100,32 +100,12 @@ impl FontMetricsBook {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Once;
-
     use super::*;
     use crate::config::{FontChain, Fonts};
     use crate::theme::font::FontBook;
-    use crate::theme::{LoadedFonts, isolate_system_fonts};
-
-    static LOAD: Once = Once::new();
-
-    fn load_fonts() {
-        isolate_system_fonts();
-        LOAD.call_once(|| {
-            let loaded = LoadedFonts::load(&Fonts::default());
-            let mut font_system = font_system().write().expect("font system");
-
-            for bytes in loaded.bytes {
-                font_system
-                    .raw()
-                    .db_mut()
-                    .load_font_data(bytes.into_owned());
-            }
-        });
-    }
 
     fn code_font() -> Font {
-        load_fonts();
+        crate::theme::load_embedded_fonts();
         let book = FontBook::new(&Fonts::default());
         book.chain_font(
             &FontChain::new(vec!["code".to_owned()]),

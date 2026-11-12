@@ -1,11 +1,12 @@
+use crate::markdown;
 use iced::widget::container;
-use iced::widget::markdown;
 use iced::widget::scrollable as scrollable_widget;
 use iced::widget::scrollable::{self, Rail, Scroller, Status};
 use iced::{Background, Border, Color, Pixels, Shadow};
 
 use crate::config::Bar;
 use crate::config::Config;
+use crate::text::Highlight;
 use crate::theme::font::FontBook;
 
 pub fn markdown_settings(config: &Config, book: &FontBook) -> markdown::Settings {
@@ -48,7 +49,7 @@ fn markdown_style(config: &Config, book: &FontBook) -> markdown::Style {
 
     markdown::Style {
         font,
-        inline_code_highlight: markdown::Highlight {
+        inline_code_highlight: Highlight {
             background: Background::Color(text.inline_code.background.resolve(palette)),
             border: iced::border::rounded(text.inline_code.radius),
         },
@@ -57,17 +58,6 @@ fn markdown_style(config: &Config, book: &FontBook) -> markdown::Style {
         inline_code_font: inline_font,
         code_block_font: code_font,
         link_color: text.link.color.resolve(palette),
-    }
-}
-
-pub fn heading_size(settings: markdown::Settings, level: &markdown::HeadingLevel) -> Pixels {
-    match level {
-        markdown::HeadingLevel::H1 => settings.h1_size,
-        markdown::HeadingLevel::H2 => settings.h2_size,
-        markdown::HeadingLevel::H3 => settings.h3_size,
-        markdown::HeadingLevel::H4 => settings.h4_size,
-        markdown::HeadingLevel::H5 => settings.h5_size,
-        markdown::HeadingLevel::H6 => settings.h6_size,
     }
 }
 

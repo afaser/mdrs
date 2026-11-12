@@ -4,8 +4,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::BufReader;
 use std::sync::{Arc, LazyLock};
 
-use iced::widget::markdown::Uri;
-use iced::widget::text::Span;
+use crate::text::Span;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Highlighter as SyntectHighlighter, Theme, ThemeSet};
 use syntect::parsing::{ParseState, ScopeStack, SyntaxSet};
@@ -17,7 +16,7 @@ static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_no_
 static THEMES: LazyLock<two_face::theme::EmbeddedLazyThemeSet> =
     LazyLock::new(two_face::theme::extra);
 
-type Block = Arc<[Span<'static, Uri>]>;
+type Block = Arc<[Span<'static>]>;
 
 pub(super) struct Highlighter {
     theme: Theme,
@@ -75,7 +74,7 @@ impl Highlighter {
 
     fn highlight_fast(&self, language: &str, code: &str) -> Block {
         let mut highlighter = HighlightLines::new(syntax(language), &self.theme);
-        let mut spans: Vec<Span<'static, Uri>> = Vec::new();
+        let mut spans: Vec<Span<'static>> = Vec::new();
 
         for (index, line) in code.lines().enumerate() {
             if index > 0 {
@@ -97,7 +96,7 @@ impl Highlighter {
         let mut parse_state = ParseState::new(syntax(language));
         let highlighter = SyntectHighlighter::new(&self.theme);
         let mut stack = ScopeStack::new();
-        let mut spans: Vec<Span<'static, Uri>> = Vec::new();
+        let mut spans: Vec<Span<'static>> = Vec::new();
 
         for (index, line) in code.lines().enumerate() {
             if index > 0 {
@@ -127,7 +126,7 @@ impl Highlighter {
 
     fn push_span(
         &self,
-        spans: &mut Vec<Span<'static, Uri>>,
+        spans: &mut Vec<Span<'static>>,
         text: &str,
         stack: &ScopeStack,
         highlighter: &SyntectHighlighter<'_>,
@@ -246,7 +245,7 @@ mod tests {
     use super::*;
     use crate::config::colors::ColorRef;
 
-    fn block_text(block: &[Span<'static, Uri>]) -> String {
+    fn block_text(block: &[Span<'static>]) -> String {
         block.iter().map(|span| span.text.as_ref()).collect()
     }
 

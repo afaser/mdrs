@@ -12,6 +12,8 @@ mod viewer_text;
 
 pub use application::theme;
 pub use document_view::DocumentView;
+#[cfg(test)]
+pub(crate) use font::load_embedded_fonts;
 pub use font::{FontBook, LoadedFonts, isolate_system_fonts};
 pub use font_metrics::{FontMetrics, FontMetricsBook};
 pub use style::{markdown_settings, scrollbar_style};

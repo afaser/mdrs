@@ -1,6 +1,7 @@
-use iced::widget::markdown::Uri;
-use iced::widget::text::Span;
-use iced::widget::{container, markdown, rich_text, scrollable};
+use iced::widget::{container, scrollable};
+
+use crate::markdown::view_with;
+use crate::text::{Label, Span};
 use iced::{Element, Length};
 
 use crate::app::{Message, Program, WheelScroll};
@@ -51,7 +52,7 @@ fn content(program: &Program) -> Element<'_, Message> {
     let config = program.config();
     let bar = &config.scrollbars.document;
     let viewer = DocumentView::new(program.viewer(), article);
-    let document = scrollable(markdown::view_with(
+    let document = scrollable(view_with(
         article.items(),
         theme::markdown_settings(config, program.fonts()),
         &viewer,
@@ -84,7 +85,7 @@ fn message(program: &Program, value: String) -> Element<'static, Message> {
         .unwrap_or_else(|| program.fonts().default_font(&config.text.message.fonts));
     let letter_spacing = (config.text.message.letter_spacing > 0.0)
         .then_some(iced::Pixels(config.text.message.letter_spacing));
-    let span: Span<'static, Uri> = Span::new(value)
+    let span: Span<'static> = Span::new(value)
         .font(font)
         .size(config.text.message.size)
         .color(config.text.message.color.resolve(&config.palette));
@@ -93,5 +94,5 @@ fn message(program: &Program, value: String) -> Element<'static, Message> {
         None => span,
     };
 
-    rich_text(vec![span]).into()
+    Label::new(vec![span]).into()
 }

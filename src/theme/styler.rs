@@ -2,10 +2,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::text::Span;
 use iced::Pixels;
 use iced::font::Style;
-use iced::widget::markdown::Uri;
-use iced::widget::text::Span;
 
 use crate::config::{Role, Script};
 use crate::theme::font::FontBook;
@@ -23,7 +22,7 @@ pub struct TextRun<'a> {
     pub script: Script,
 }
 
-pub(crate) type SpanCache = HashMap<(usize, RoleKey), Arc<[Span<'static, Uri>]>>;
+pub(crate) type SpanCache = HashMap<(usize, RoleKey), Arc<[Span<'static>]>>;
 
 pub fn runs(text: &str) -> Vec<TextRun<'_>> {
     let mut runs = Vec::new();
@@ -69,11 +68,11 @@ pub struct SpanStyler {
 impl SpanStyler {
     pub fn style(
         &self,
-        spans: &Arc<[Span<'static, Uri>]>,
+        spans: &Arc<[Span<'static>]>,
         role: &Role,
         key: RoleKey,
         book: &FontBook,
-    ) -> Arc<[Span<'static, Uri>]> {
+    ) -> Arc<[Span<'static>]> {
         let cache_key = (Arc::as_ptr(spans) as *const () as usize, key);
 
         if let Some(cached) = self.cache.borrow().get(&cache_key) {
@@ -92,11 +91,7 @@ impl SpanStyler {
     }
 }
 
-fn style_spans(
-    spans: &[Span<'static, Uri>],
-    role: &Role,
-    book: &FontBook,
-) -> Arc<[Span<'static, Uri>]> {
+fn style_spans(spans: &[Span<'static>], role: &Role, book: &FontBook) -> Arc<[Span<'static>]> {
     let base = book.role_font(role, role.weight, Style::Normal);
 
     spans
@@ -107,11 +102,11 @@ fn style_spans(
 }
 
 fn style_span(
-    span: &Span<'static, Uri>,
+    span: &Span<'static>,
     role: &Role,
     book: &FontBook,
     base: Option<&iced::Font>,
-) -> Vec<Span<'static, Uri>> {
+) -> Vec<Span<'static>> {
     let explicit = span.font;
     let weight = explicit.map(|font| font.weight).unwrap_or(role.weight);
     let style = explicit.map(|font| font.style).unwrap_or(Style::Normal);
@@ -201,7 +196,7 @@ mod tests {
             style: Style::Italic,
             ..base
         });
-        let spans: Arc<[Span<'static, Uri>]> = Arc::from(vec![bold, italic].into_boxed_slice());
+        let spans: Arc<[Span<'static>]> = Arc::from(vec![bold, italic].into_boxed_slice());
 
         let styled = style_spans(&spans, &role, &book);
 
@@ -232,7 +227,7 @@ mod tests {
             )
             .expect("code font");
         let span = Span::new("Hello, мир".to_owned()).font(code_font);
-        let spans: Arc<[Span<'static, Uri>]> = Arc::from(vec![span].into_boxed_slice());
+        let spans: Arc<[Span<'static>]> = Arc::from(vec![span].into_boxed_slice());
 
         let styled = style_spans(&spans, &role, &book);
 
@@ -257,7 +252,7 @@ mod tests {
             ligatures: false,
         };
         let span = Span::new("text".to_owned());
-        let spans: Arc<[Span<'static, Uri>]> = Arc::from(vec![span].into_boxed_slice());
+        let spans: Arc<[Span<'static>]> = Arc::from(vec![span].into_boxed_slice());
 
         let styled = style_spans(&spans, &role, &book);
         role.letter_spacing = 0.0;
@@ -283,7 +278,7 @@ mod tests {
             ligatures: false,
         };
         let span = Span::new("Hello, мир".to_owned()).link("https://example.com".to_owned());
-        let spans: Arc<[Span<'static, Uri>]> = Arc::from(vec![span].into_boxed_slice());
+        let spans: Arc<[Span<'static>]> = Arc::from(vec![span].into_boxed_slice());
 
         let styled = style_spans(&spans, &role, &book);
 

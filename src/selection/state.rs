@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
-use iced::advanced::graphics::text::Paragraph as TextParagraph;
-use iced::widget::markdown::Uri;
-use iced::widget::text::Span;
+use crate::text::{Paragraph, Span};
 use iced::{Point, Rectangle, Size};
 
 use crate::selection::block_source::BlockSource;
 use crate::selection::document_geometry::VisualLine;
 use crate::selection::generation::Generation;
-use crate::selection::text_layout::{LayoutChange, TextConfig, TextLayout};
+use crate::selection::text_layout::{LayoutChange, TextLayout};
+use crate::text::TextConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Press {
@@ -36,7 +35,7 @@ impl TextState {
     pub(super) fn sync_layout(
         &mut self,
         config: TextConfig,
-        spans: &Arc<[Span<'static, Uri>]>,
+        spans: &Arc<[Span<'static>]>,
         bounds: Size,
     ) -> bool {
         let change = self.layout.sync(config, spans, bounds);
@@ -91,7 +90,7 @@ impl TextState {
         self.layout.visual_lines(source)
     }
 
-    pub(super) fn hit_link(&self, spans: &[Span<'static, Uri>], point: Point) -> Option<usize> {
+    pub(super) fn hit_link(&self, spans: &[Span<'static>], point: Point) -> Option<usize> {
         self.layout
             .hit_span(point)
             .filter(|index| spans.get(*index).is_some_and(|span| span.link.is_some()))
@@ -105,7 +104,7 @@ impl TextState {
         self.layout.min_bounds()
     }
 
-    pub(super) fn paragraph(&self) -> &TextParagraph {
+    pub(super) fn paragraph(&self) -> &Paragraph {
         self.layout.paragraph()
     }
 }

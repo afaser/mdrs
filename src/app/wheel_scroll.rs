@@ -4,11 +4,12 @@ use std::time::Instant;
 
 use iced::advanced::widget::{Operation, Tree, Widget, tree};
 use iced::advanced::{Clipboard, Layout, Shell, layout, overlay, renderer};
-use iced::widget::scrollable::{self, AbsoluteOffset};
+use iced::widget::scrollable::AbsoluteOffset;
 use iced::{Element, Event, Length, Rectangle, Size, Vector, keyboard, mouse};
 
 use crate::app::Message;
 use crate::app::scroll::Scroll;
+use crate::app::scroll_offset::Access;
 use crate::config::Wheel;
 use crate::selection::Generation;
 
@@ -34,29 +35,43 @@ impl<'a> WheelScroll<'a> {
         }
     }
 
-    fn sync_scroll(&self, tree: &mut Tree, layout: Layout<'_>) {
+    fn sync_scroll(&mut self, tree: &mut Tree, layout: Layout<'_>, renderer: &iced::Renderer) {
         let bounds = layout.bounds();
         let Some(content) = layout.children().next() else {
             return;
         };
         let content_bounds = content.bounds();
         let limit = vertical_limit(bounds, content_bounds);
-        let scrollable: &scrollable::State = tree.children[0].state.downcast_ref();
-        let offset = scrollable.absolute_offset(bounds, content_bounds);
+        let mut access = Access::read();
+
+        self.content
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, &mut access);
+
+        let offset = access.offset().unwrap_or_default();
         let state: &mut WheelState = tree.state.downcast_mut();
 
         state.scroll.set_limit(limit);
-        state.scroll.remember(offset, limit);
-        self.offset.set(offset.y);
+        state
+            .scroll
+            .remember(AbsoluteOffset { x: 0.0, y: offset }, limit);
+        self.offset.set(offset);
     }
 
-    fn apply_offset(&self, tree: &mut Tree, offset: AbsoluteOffset) {
-        let state: &mut scrollable::State = tree.children[0].state.downcast_mut();
-        state.set_offset(AbsoluteOffset {
-            x: None,
-            y: Some(offset.y),
-        });
-        self.offset.set(offset.y);
+    fn apply_offset(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &iced::Renderer,
+        y: f32,
+    ) {
+        self.content.as_widget_mut().operate(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            &mut Access::write(y),
+        );
+        self.offset.set(y);
     }
 }
 
@@ -202,7 +217,7 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
             && cursor.is_over(layout.bounds())
             && captures_wheel(*delta, modifiers)
         {
-            self.sync_scroll(tree, layout);
+            self.sync_scroll(tree, layout, renderer);
             let now = Instant::now();
             let offset = {
                 let state: &mut WheelState = tree.state.downcast_mut();
@@ -211,7 +226,7 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
             };
 
             if let Some(offset) = offset {
-                self.apply_offset(tree, offset);
+                self.apply_offset(tree, layout, renderer, offset.y);
             }
 
             shell.capture_event();
@@ -228,7 +243,7 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
             };
 
             if let Some(offset) = offset {
-                self.apply_offset(tree, offset);
+                self.apply_offset(tree, layout, renderer, offset.y);
             }
 
             if moving {
@@ -249,7 +264,7 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
             shell,
             viewport,
         );
-        self.sync_scroll(tree, layout);
+        self.sync_scroll(tree, layout, renderer);
     }
 
     fn mouse_interaction(

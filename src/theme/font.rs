@@ -156,6 +156,27 @@ impl LoadedFonts {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn load_embedded_fonts() {
+    static LOAD: Once = Once::new();
+
+    isolate_system_fonts();
+
+    LOAD.call_once(|| {
+        let loaded = LoadedFonts::load(&Fonts::default());
+        let mut font_system = iced::advanced::graphics::text::font_system()
+            .write()
+            .expect("font system");
+
+        for bytes in loaded.bytes {
+            font_system
+                .raw()
+                .db_mut()
+                .load_font_data(bytes.into_owned());
+        }
+    });
+}
+
 fn load_face(face: &Face, bytes: &mut Vec<Cow<'static, [u8]>>) {
     if let Some(data) = face.source.bytes() {
         bytes.push(Cow::Borrowed(data));

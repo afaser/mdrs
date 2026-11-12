@@ -1,11 +1,10 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use iced::advanced::graphics::text::Paragraph as TextParagraph;
-use iced::advanced::text::{Alignment, Paragraph as _, Text, Wrapping};
-use iced::widget::markdown::Uri;
-use iced::widget::text::Span;
+use iced::advanced::text::{Alignment, Wrapping};
 use iced::{Background, Border, Color, Padding, Size};
+
+use crate::text::{Paragraph, Span, TextConfig};
 
 const MEASURE_BOUNDS: f32 = 1_000_000.0;
 
@@ -13,7 +12,7 @@ use crate::selection::inline_atom::{Atom, AtomBody, Chip, InlineConfig, TextBody
 
 #[derive(Debug, Clone)]
 struct Piece {
-    span: Span<'static, Uri>,
+    span: Span<'static>,
     local: Range<usize>,
     global: Range<usize>,
 }
@@ -22,7 +21,7 @@ struct Piece {
 enum Raw {
     Piece(Piece),
     Chip {
-        span: Span<'static, Uri>,
+        span: Span<'static>,
         range: Range<usize>,
     },
     Space {
@@ -31,7 +30,7 @@ enum Raw {
     },
 }
 
-pub(super) fn logical_text(spans: &[Span<'static, Uri>]) -> String {
+pub(super) fn logical_text(spans: &[Span<'static>]) -> String {
     let mut text = String::new();
 
     for span in spans {
@@ -41,7 +40,7 @@ pub(super) fn logical_text(spans: &[Span<'static, Uri>]) -> String {
     text
 }
 
-pub(super) fn atomize(spans: &Arc<[Span<'static, Uri>]>, config: InlineConfig) -> Vec<Atom> {
+pub(super) fn atomize(spans: &Arc<[Span<'static>]>, config: InlineConfig) -> Vec<Atom> {
     let raw = split(spans);
     let mut atoms = Vec::new();
     let mut pending: Vec<Piece> = Vec::new();
@@ -69,7 +68,7 @@ pub(super) fn atomize(spans: &Arc<[Span<'static, Uri>]>, config: InlineConfig) -
     atoms
 }
 
-fn split(spans: &[Span<'static, Uri>]) -> Vec<Raw> {
+fn split(spans: &[Span<'static>]) -> Vec<Raw> {
     let mut raw = Vec::new();
     let mut start = 0;
 
@@ -93,7 +92,7 @@ fn split(spans: &[Span<'static, Uri>]) -> Vec<Raw> {
     raw
 }
 
-fn split_span(span: &Span<'static, Uri>, offset: usize, raw: &mut Vec<Raw>) {
+fn split_span(span: &Span<'static>, offset: usize, raw: &mut Vec<Raw>) {
     let text = span.text.as_ref();
     let mut run_start = 0;
     let mut run_space = text.chars().next().is_some_and(char::is_whitespace);
@@ -114,7 +113,7 @@ fn split_span(span: &Span<'static, Uri>, offset: usize, raw: &mut Vec<Raw>) {
 }
 
 fn push_segment(
-    span: &Span<'static, Uri>,
+    span: &Span<'static>,
     offset: usize,
     local: Range<usize>,
     space: bool,
@@ -185,7 +184,7 @@ fn flush_text(pending: &mut Vec<Piece>, atoms: &mut Vec<Atom>, config: InlineCon
     });
 }
 
-fn chip_atom(span: Span<'static, Uri>, range: Range<usize>, config: InlineConfig) -> Atom {
+fn chip_atom(span: Span<'static>, range: Range<usize>, config: InlineConfig) -> Atom {
     let background = span
         .highlight
         .map(|highlight| highlight.background)
@@ -225,23 +224,20 @@ fn chip_atom(span: Span<'static, Uri>, range: Range<usize>, config: InlineConfig
     }
 }
 
-fn measure(spans: &[Span<'static, Uri>], config: InlineConfig) -> TextParagraph {
-    let text = Text {
-        content: spans,
-        bounds: Size::new(MEASURE_BOUNDS, MEASURE_BOUNDS),
-        size: config.size,
-        line_height: config.line_height,
-        font: config.font,
-        align_x: Alignment::Left,
-        align_y: iced::alignment::Vertical::Top,
-        shaping: config.shaping,
-        wrapping: Wrapping::None,
-    };
+fn measure(spans: &[Span<'static>], config: InlineConfig) -> Paragraph {
+    let mut text = TextConfig::new(
+        config.size,
+        config.font,
+        config.line_height,
+        Wrapping::None,
+        config.shaping,
+    );
+    text.align_x = Alignment::Left;
 
-    TextParagraph::with_spans(text)
+    Paragraph::new(spans, text, Size::new(MEASURE_BOUNDS, MEASURE_BOUNDS))
 }
 
-fn metrics(paragraph: &TextParagraph, config: InlineConfig) -> (f32, f32, f32) {
+fn metrics(paragraph: &Paragraph, config: InlineConfig) -> (f32, f32, f32) {
     let width = paragraph.min_bounds().width;
     let Some(run) = paragraph.buffer().layout_runs().next() else {
         return (width, config.line_height.to_absolute(config.size).0, 0.0);
@@ -258,7 +254,6 @@ fn metrics(paragraph: &TextParagraph, config: InlineConfig) -> (f32, f32, f32) {
 mod tests {
     use super::*;
     use iced::advanced::text::{LineHeight, Shaping};
-    use iced::widget::markdown::Uri;
     use iced::{Font, Pixels};
 
     fn config() -> InlineConfig {
@@ -273,12 +268,12 @@ mod tests {
         }
     }
 
-    fn code(text: &str) -> Span<'static, Uri> {
+    fn code(text: &str) -> Span<'static> {
         Span::new(text.to_owned()).background(Color::from_rgb8(0x31, 0x32, 0x44))
     }
 
-    fn atomize_text(spans: Vec<Span<'static, Uri>>) -> (Vec<Atom>, String) {
-        let spans: Arc<[Span<'static, Uri>]> = Arc::from(spans.into_boxed_slice());
+    fn atomize_text(spans: Vec<Span<'static>>) -> (Vec<Atom>, String) {
+        let spans: Arc<[Span<'static>]> = Arc::from(spans.into_boxed_slice());
         (atomize(&spans, config()), logical_text(&spans))
     }
 
@@ -342,7 +337,7 @@ mod tests {
 
     #[test]
     fn space_count_sets_the_gap() {
-        let spans: Arc<[Span<'static, Uri>]> = Arc::from(
+        let spans: Arc<[Span<'static>]> = Arc::from(
             vec![
                 Span::new("a".to_owned()),
                 Span::new("   ".to_owned()),

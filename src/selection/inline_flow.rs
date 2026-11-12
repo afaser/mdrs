@@ -2,13 +2,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::markdown::Uri;
+use crate::text::Span;
 use iced::advanced::layout;
 use iced::advanced::mouse;
 use iced::advanced::renderer;
 use iced::advanced::widget::{Widget, tree};
 use iced::advanced::{Clipboard, Layout, Renderer as _, Shell};
-use iced::widget::markdown::Uri;
-use iced::widget::text::Span;
 use iced::{Background, Element, Event, Length, Point, Rectangle, Size, Vector};
 
 use crate::selection::TextColors;
@@ -21,7 +21,7 @@ use crate::selection::inline_atom::InlineConfig;
 use crate::selection::inline_state::InlineState;
 
 pub struct InlineFlow<'a, Message> {
-    spans: Arc<[Span<'static, Uri>]>,
+    spans: Arc<[Span<'static>]>,
     config: InlineConfig,
     colors: TextColors,
     decoration: Decoration,
@@ -34,7 +34,7 @@ pub struct InlineFlow<'a, Message> {
 }
 
 impl<'a, Message> InlineFlow<'a, Message> {
-    pub fn new(spans: Arc<[Span<'static, Uri>]>, config: InlineConfig, colors: TextColors) -> Self {
+    pub fn new(spans: Arc<[Span<'static>]>, config: InlineConfig, colors: TextColors) -> Self {
         Self {
             spans,
             config,
@@ -171,7 +171,7 @@ where
         tree: &tree::Tree,
         renderer: &mut iced::Renderer,
         _theme: &iced::Theme,
-        defaults: &renderer::Style,
+        _defaults: &renderer::Style,
         layout: Layout<'_>,
         _cursor: mouse::Cursor,
         viewport: &Rectangle,
@@ -230,7 +230,6 @@ where
         );
         crate::selection::inline_render::draw_text(
             renderer,
-            defaults,
             origin,
             lines,
             state,

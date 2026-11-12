@@ -2,9 +2,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::markdown::Uri;
+use crate::text::Span;
 use iced::advanced::text::{LineHeight, Shaping, Wrapping};
-use iced::widget::markdown::Uri;
-use iced::widget::text::Span;
 use iced::{Element, Pixels};
 
 use crate::config::{Config, Role};
@@ -49,7 +49,7 @@ impl TextRole {
 }
 
 struct PreparedText {
-    spans: Arc<[Span<'static, Uri>]>,
+    spans: Arc<[Span<'static>]>,
     role: Role,
     font: iced::Font,
     colors: TextColors,
@@ -107,7 +107,7 @@ impl ViewerText {
     pub(super) fn selectable_text<'a, Message>(
         &self,
         role: TextRole,
-        spans: Arc<[Span<'static, Uri>]>,
+        spans: Arc<[Span<'static>]>,
         size: Pixels,
         source: Option<BlockSource>,
     ) -> SelectableText<'a, Message>
@@ -122,7 +122,7 @@ impl ViewerText {
     pub(super) fn flow_text<'a, Message>(
         &self,
         role: TextRole,
-        spans: Arc<[Span<'static, Uri>]>,
+        spans: Arc<[Span<'static>]>,
         size: Pixels,
         source: Option<BlockSource>,
     ) -> Element<'a, Message, iced::Theme, iced::Renderer>
@@ -167,7 +167,7 @@ impl ViewerText {
         }
     }
 
-    fn prepare(&self, role: TextRole, spans: Arc<[Span<'static, Uri>]>) -> PreparedText {
+    fn prepare(&self, role: TextRole, spans: Arc<[Span<'static>]>) -> PreparedText {
         let role_config = role.role(&self.config);
         let styled = self
             .styler
@@ -240,7 +240,7 @@ impl ViewerText {
         }
     }
 
-    fn style_links(&self, spans: Arc<[Span<'static, Uri>]>) -> Arc<[Span<'static, Uri>]> {
+    fn style_links(&self, spans: Arc<[Span<'static>]>) -> Arc<[Span<'static>]> {
         let link = &self.config.text.link;
         let configured_font = link.fonts.as_ref().and_then(|chain| {
             self.fonts.chain_font(
@@ -291,7 +291,7 @@ impl ViewerText {
 
     fn apply_link_font(
         &self,
-        span: &mut Span<'static, Uri>,
+        span: &mut Span<'static>,
         configured: Option<iced::Font>,
         weight: Option<iced::font::Weight>,
     ) {
@@ -311,11 +311,7 @@ impl ViewerText {
         span.font = Some(font);
     }
 
-    fn inline_code(
-        &self,
-        spans: Arc<[Span<'static, Uri>]>,
-        key: RoleKey,
-    ) -> Arc<[Span<'static, Uri>]> {
+    fn inline_code(&self, spans: Arc<[Span<'static>]>, key: RoleKey) -> Arc<[Span<'static>]> {
         if !spans.iter().any(|span| span.highlight.is_some()) {
             return spans;
         }
@@ -333,7 +329,7 @@ impl ViewerText {
         styled
     }
 
-    fn style_inline_code(&self, spans: Arc<[Span<'static, Uri>]>) -> Arc<[Span<'static, Uri>]> {
+    fn style_inline_code(&self, spans: Arc<[Span<'static>]>) -> Arc<[Span<'static>]> {
         let role = &self.config.text.inline_code.role;
         let font = self
             .fonts

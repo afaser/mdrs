@@ -1,6 +1,8 @@
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
+pub type Uri = String;
+
 pub fn file_path(uri: &str) -> Option<PathBuf> {
     let encoded = uri.strip_prefix("file://")?;
 

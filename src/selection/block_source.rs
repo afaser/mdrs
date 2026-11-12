@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use iced::widget::markdown::{SourceSegment, Text};
+use crate::markdown::{SourceSegment, Text};
 
 use crate::markdown::{SourceIndex, SourceLine};
 
@@ -142,7 +142,7 @@ impl BlockSource {
 mod tests {
     use super::*;
     use crate::markdown::Article;
-    use iced::widget::markdown::Item;
+    use crate::markdown::Item;
 
     fn text(article: &Article) -> &Text {
         article
@@ -203,8 +203,8 @@ mod tests {
                 Item::List { bullets, .. } => {
                     for bullet in bullets {
                         let items = match bullet {
-                            iced::widget::markdown::Bullet::Point { items }
-                            | iced::widget::markdown::Bullet::Task { items, .. } => items,
+                            crate::markdown::Bullet::Point { items }
+                            | crate::markdown::Bullet::Task { items, .. } => items,
                         };
                         collect_texts(items, texts);
                     }

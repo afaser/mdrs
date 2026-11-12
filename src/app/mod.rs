@@ -6,6 +6,7 @@ mod motion;
 mod program;
 mod run;
 mod scroll;
+mod scroll_offset;
 mod selection;
 mod startup;
 mod subscription;

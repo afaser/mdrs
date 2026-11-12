@@ -4,18 +4,19 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use std::time::Instant;
 
-use iced::widget::markdown::{self, HeadingLevel, Settings, Text, Uri};
-use iced::widget::{container, image as image_widget, rich_text};
+use iced::widget::{container, image as image_widget};
 use iced::{ContentFit, Element, Length, padding};
 
 use crate::config::Config;
 use crate::markdown::SourceIndex;
+use crate::markdown::{HeadingLevel, Settings, Text, Uri, Viewer as MarkdownViewer};
 use crate::selection::BlockSource;
 use crate::selection::DocumentGeometry;
 use crate::selection::DocumentSelection;
+use crate::text::Label;
 use crate::theme::font::FontBook;
 use crate::theme::highlighter::Highlighter;
-use crate::theme::style::{heading_size, heading_top};
+use crate::theme::style::heading_top;
 use crate::theme::viewer_text::{TextRole, ViewerText};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -275,14 +276,10 @@ impl Viewer {
     }
 }
 
-impl<'a, Message> markdown::Viewer<'a, Message, iced::Theme, iced::Renderer> for Viewer
+impl<'a, Message> MarkdownViewer<'a, Message> for Viewer
 where
     Message: From<Uri> + From<Option<String>> + From<CodeCopy> + From<CopyHover> + Clone + 'a,
 {
-    fn on_link_click(url: Uri) -> Message {
-        Message::from(url)
-    }
-
     fn heading(
         &self,
         settings: Settings,
@@ -306,7 +303,7 @@ where
         settings: Settings,
         url: &'a Uri,
         _title: &'a str,
-        alt: &Text,
+        alt: &'a Text,
     ) -> Element<'a, Message, iced::Theme, iced::Renderer> {
         match crate::markdown::file_path(url).filter(|path| path.is_file()) {
             Some(path) => {
@@ -322,7 +319,7 @@ where
                     .width(Length::Fill)
                     .into()
             }
-            None => container(rich_text(alt.spans(settings.style)).size(settings.text_size))
+            None => container(Label::new(alt.spans(settings.style)).size(settings.text_size))
                 .padding(settings.spacing)
                 .into(),
         }
@@ -352,7 +349,7 @@ impl Viewer {
     where
         Message: From<Uri> + From<Option<String>> + 'a,
     {
-        let size = heading_size(settings, level);
+        let size = settings.heading_size(level);
         let selectable = self.text.flow_text(
             TextRole::Heading(heading_index(level)),
             text.spans(settings.style),

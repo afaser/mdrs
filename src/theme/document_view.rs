@@ -1,17 +1,16 @@
 use iced::Element;
-use iced::widget::markdown::{self, Bullet, Column, HeadingLevel, Item, Row, Settings, Text, Uri};
 
-use crate::markdown::Article;
+use crate::markdown::{self, HeadingLevel, Settings, Text, Uri};
 use crate::selection::BlockSource;
 use crate::theme::Viewer;
 
 pub struct DocumentView<'a> {
     viewer: &'a Viewer,
-    article: &'a Article,
+    article: &'a crate::markdown::Article,
 }
 
 impl<'a> DocumentView<'a> {
-    pub fn new(viewer: &'a Viewer, article: &'a Article) -> Self {
+    pub fn new(viewer: &'a Viewer, article: &'a crate::markdown::Article) -> Self {
         Self { viewer, article }
     }
 
@@ -22,7 +21,7 @@ impl<'a> DocumentView<'a> {
     }
 }
 
-impl<'a, Message> markdown::Viewer<'a, Message, iced::Theme, iced::Renderer> for DocumentView<'a>
+impl<'a, Message> markdown::Viewer<'a, Message> for DocumentView<'a>
 where
     Message: From<Uri>
         + From<Option<String>>
@@ -31,17 +30,13 @@ where
         + Clone
         + 'a,
 {
-    fn on_link_click(url: Uri) -> Message {
-        Message::from(url)
-    }
-
     fn image(
         &self,
         settings: Settings,
         url: &'a Uri,
         title: &'a str,
-        alt: &Text,
-    ) -> Element<'a, Message, iced::Theme, iced::Renderer> {
+        alt: &'a Text,
+    ) -> Element<'a, Message> {
         markdown::Viewer::image(self.viewer, settings, url, title, alt)
     }
 
@@ -51,16 +46,12 @@ where
         level: &'a HeadingLevel,
         text: &'a Text,
         index: usize,
-    ) -> Element<'a, Message, iced::Theme, iced::Renderer> {
+    ) -> Element<'a, Message> {
         self.viewer
             .heading_content(settings, level, text, index, Some(self.source(text)))
     }
 
-    fn paragraph(
-        &self,
-        settings: Settings,
-        text: &Text,
-    ) -> Element<'a, Message, iced::Theme, iced::Renderer> {
+    fn paragraph(&self, settings: Settings, text: &Text) -> Element<'a, Message> {
         self.viewer
             .paragraph_content(settings, text, Some(self.source(text)))
     }
@@ -71,7 +62,7 @@ where
         language: Option<&'a str>,
         code: &'a str,
         lines: &'a [Text],
-    ) -> Element<'a, Message, iced::Theme, iced::Renderer> {
+    ) -> Element<'a, Message> {
         let source = self
             .viewer
             .source_code(self.article.index(), lines)
@@ -79,43 +70,5 @@ where
 
         self.viewer
             .code_block_content(settings, language, code, Some(source))
-    }
-
-    fn unordered_list(
-        &self,
-        settings: Settings,
-        bullets: &'a [Bullet],
-    ) -> Element<'a, Message, iced::Theme, iced::Renderer> {
-        markdown::unordered_list(self, settings, bullets)
-    }
-
-    fn ordered_list(
-        &self,
-        settings: Settings,
-        start: u64,
-        bullets: &'a [Bullet],
-    ) -> Element<'a, Message, iced::Theme, iced::Renderer> {
-        markdown::ordered_list(self, settings, start, bullets)
-    }
-
-    fn quote(
-        &self,
-        settings: Settings,
-        contents: &'a [Item],
-    ) -> Element<'a, Message, iced::Theme, iced::Renderer> {
-        markdown::quote(self, settings, contents)
-    }
-
-    fn rule(&self, _settings: Settings) -> Element<'a, Message, iced::Theme, iced::Renderer> {
-        markdown::rule()
-    }
-
-    fn table(
-        &self,
-        settings: Settings,
-        columns: &'a [Column],
-        rows: &'a [Row],
-    ) -> Element<'a, Message, iced::Theme, iced::Renderer> {
-        markdown::table(self, settings, columns, rows)
     }
 }

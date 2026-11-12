@@ -1,8 +1,8 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use iced::widget::markdown::Uri;
-use iced::widget::text::Span;
+use crate::markdown::Uri;
+use crate::text::Span;
 use iced::{Point, Size};
 
 use crate::selection::block_source::BlockSource;
@@ -44,7 +44,7 @@ pub(super) struct InlineLayout {
     logical: String,
     lines: Vec<Line>,
     size: Size,
-    spans: Option<Arc<[Span<'static, Uri>]>>,
+    spans: Option<Arc<[Span<'static>]>>,
     config: Option<InlineConfig>,
     width: f32,
 }
@@ -52,7 +52,7 @@ pub(super) struct InlineLayout {
 impl InlineLayout {
     pub(super) fn sync(
         &mut self,
-        spans: &Arc<[Span<'static, Uri>]>,
+        spans: &Arc<[Span<'static>]>,
         config: InlineConfig,
         max_width: f32,
     ) -> LayoutChange {
@@ -380,11 +380,11 @@ mod tests {
     use super::*;
     use crate::config::{FontChain, Fonts};
     use crate::markdown::Article;
+    use crate::markdown::Item;
     use crate::selection::block_source::BlockSource;
     use crate::selection::inline_atom::InlineConfig;
     use crate::theme::FontBook;
     use iced::advanced::text::{LineHeight, Shaping};
-    use iced::widget::markdown::Item;
     use iced::{Font, Padding, Pixels};
 
     fn font() -> Font {
@@ -409,7 +409,7 @@ mod tests {
         }
     }
 
-    fn code_span(text: &str) -> Span<'static, Uri> {
+    fn code_span(text: &str) -> Span<'static> {
         Span::new(text.to_owned())
             .background(iced::Color::from_rgb8(0x31, 0x32, 0x44))
             .padding(Padding::from(4.0))
@@ -417,7 +417,7 @@ mod tests {
 
     #[test]
     fn chip_does_not_fit_remaining_line_goes_to_next_line() {
-        let spans: Arc<[Span<'static, Uri>]> =
+        let spans: Arc<[Span<'static>]> =
             Arc::from(vec![Span::new("alpha ".to_owned()), code_span("code")].into_boxed_slice());
         let mut layout = InlineLayout::default();
         let config = config();
@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn resize_reflows_lines_without_splitting_chip() {
-        let spans: Arc<[Span<'static, Uri>]> = Arc::from(
+        let spans: Arc<[Span<'static>]> = Arc::from(
             vec![
                 Span::new("one two ".to_owned()),
                 code_span("chip"),
@@ -477,8 +477,7 @@ mod tests {
 
     #[test]
     fn chip_padding_increases_line_height() {
-        let spans: Arc<[Span<'static, Uri>]> =
-            Arc::from(vec![code_span("chip")].into_boxed_slice());
+        let spans: Arc<[Span<'static>]> = Arc::from(vec![code_span("chip")].into_boxed_slice());
         let mut layout = InlineLayout::default();
         let config = config();
         layout.sync(&spans, config, 10_000.0);
@@ -494,7 +493,7 @@ mod tests {
 
     #[test]
     fn selection_across_chip_copies_logical_text_with_spaces() {
-        let spans: Arc<[Span<'static, Uri>]> = Arc::from(
+        let spans: Arc<[Span<'static>]> = Arc::from(
             vec![
                 Span::new("alpha beta ".to_owned()),
                 code_span("code"),
@@ -511,8 +510,7 @@ mod tests {
 
     #[test]
     fn hit_inside_chip_maps_to_code_byte() {
-        let spans: Arc<[Span<'static, Uri>]> =
-            Arc::from(vec![code_span("code")].into_boxed_slice());
+        let spans: Arc<[Span<'static>]> = Arc::from(vec![code_span("code")].into_boxed_slice());
         let mut layout = InlineLayout::default();
         layout.sync(&spans, config(), 10_000.0);
         let line = &layout.lines()[0];
@@ -542,7 +540,7 @@ mod tests {
             .expect("paragraph");
         let source =
             BlockSource::from_text(paragraph.source().start, article.index().clone(), paragraph);
-        let spans: Arc<[Span<'static, Uri>]> = Arc::from(
+        let spans: Arc<[Span<'static>]> = Arc::from(
             vec![
                 Span::new("alpha ".to_owned()),
                 code_span("code"),
@@ -561,7 +559,7 @@ mod tests {
 
     #[test]
     fn point_in_text_is_false_outside_visual_lines() {
-        let spans: Arc<[Span<'static, Uri>]> =
+        let spans: Arc<[Span<'static>]> =
             Arc::from(vec![Span::new("alpha ".to_owned()), code_span("code")].into_boxed_slice());
         let mut layout = InlineLayout::default();
         layout.sync(&spans, config(), 10_000.0);
@@ -572,7 +570,7 @@ mod tests {
 
     #[test]
     fn unchanged_layout_is_not_rebuilt() {
-        let spans: Arc<[Span<'static, Uri>]> =
+        let spans: Arc<[Span<'static>]> =
             Arc::from(vec![Span::new("alpha ".to_owned()), code_span("code")].into_boxed_slice());
         let mut layout = InlineLayout::default();
         let first = layout.sync(&spans, config(), 200.0);
@@ -586,7 +584,7 @@ mod tests {
 
     #[test]
     fn shrink_width_does_not_exceed_available_width() {
-        let spans: Arc<[Span<'static, Uri>]> = Arc::from(
+        let spans: Arc<[Span<'static>]> = Arc::from(
             vec![
                 Span::new("alpha ".to_owned()),
                 code_span("code"),
@@ -616,7 +614,7 @@ mod tests {
     #[test]
     fn long_text_atom_continues_across_lines() {
         let text = "supercalifragilisticexpialidocious";
-        let spans: Arc<[Span<'static, Uri>]> =
+        let spans: Arc<[Span<'static>]> =
             Arc::from(vec![Span::new(text.to_owned())].into_boxed_slice());
         let mut layout = InlineLayout::default();
         layout.sync(&spans, config(), 50.0);

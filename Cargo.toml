@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-iced = { version = "0.14", default-features = false, features = ["advanced", "advanced-shaping", "image", "markdown", "highlighter", "svg", "thread-pool", "wayland", "wgpu", "x11"] }
+iced = { version = "0.14", default-features = false, features = ["advanced", "advanced-shaping", "image", "svg", "thread-pool", "wayland", "wgpu", "x11"] }
 iced_runtime = "0.14"
 kdl = { version = "6", default-features = false, features = ["span"] }
 log = "0.4"
@@ -13,8 +13,3 @@ pulldown-cmark = "0.13"
 rfd = "0.18"
 syntect = "5"
 two-face = "0.5"
-
-[patch.crates-io]
-iced_core = { path = "vendor/iced_core" }
-iced_graphics = { path = "vendor/iced_graphics" }
-iced_widget = { path = "vendor/iced_widget" }

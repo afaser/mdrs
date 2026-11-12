@@ -1,9 +1,10 @@
 use std::ops::Range;
 
-use iced::advanced::graphics::text::Paragraph as TextParagraph;
+use crate::markdown::Uri;
 use iced::advanced::text::{LineHeight, Shaping};
-use iced::widget::markdown::Uri;
 use iced::{Background, Border, Color, Font, Padding, Pixels};
+
+use crate::text::Paragraph;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InlineConfig {
@@ -16,7 +17,7 @@ pub struct InlineConfig {
 
 #[derive(Debug, Clone)]
 pub(super) struct Chip {
-    paragraph: TextParagraph,
+    paragraph: Paragraph,
     content_width: f32,
     content_ascent: f32,
     content_descent: f32,
@@ -27,7 +28,7 @@ pub(super) struct Chip {
 
 #[derive(Debug, Clone)]
 pub(super) struct TextBody {
-    paragraph: TextParagraph,
+    paragraph: Paragraph,
     width: f32,
     ascent: f32,
     descent: f32,
@@ -147,7 +148,7 @@ impl Atom {
         }
     }
 
-    pub(super) fn paragraph(&self) -> Option<&TextParagraph> {
+    pub(super) fn paragraph(&self) -> Option<&Paragraph> {
         match &self.body {
             AtomBody::Text(text) => Some(&text.paragraph),
             AtomBody::Space { .. } => None,
@@ -227,7 +228,7 @@ impl Chip {
 }
 
 impl TextBody {
-    pub(super) fn paragraph(&self) -> &TextParagraph {
+    pub(super) fn paragraph(&self) -> &Paragraph {
         &self.paragraph
     }
 
@@ -238,7 +239,7 @@ impl TextBody {
 
 impl TextBody {
     pub(super) fn new(
-        paragraph: TextParagraph,
+        paragraph: Paragraph,
         width: f32,
         ascent: f32,
         descent: f32,
@@ -257,7 +258,7 @@ impl TextBody {
 impl Chip {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
-        paragraph: TextParagraph,
+        paragraph: Paragraph,
         content_width: f32,
         content_ascent: f32,
         content_descent: f32,

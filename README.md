@@ -271,7 +271,8 @@ theme {
 ## Окружение
 
 Зависимости окружения описаны в `flake.nix`; Wayland/X11, Vulkan loader и libdbus
-попадают в `LD_LIBRARY_PATH` через direnv.
+попадают в `LD_LIBRARY_PATH` через direnv, `sway`, `Xwayland`, `grim`, `xdotool`
+и `vulkan-tools` — в `PATH`. Контейнеры запускаются системным rootless podman.
 
 ```
 direnv allow
@@ -279,19 +280,41 @@ direnv allow
 
 ## Сборка и запуск
 
-```
-cargo build --release
-cargo run --release -- path/to/file.md
-```
-
-Диагностика запуска:
+Приложение запускается только в контейнере с вложенным headless-композитором и
+hardware GPU; окно в сессии пользователя не открывается.
 
 ```
-MDRS_STARTUP=1 ./target/release/mdrs path/to/file.md
+direnv allow
+scripts/sandbox.sh path/to/file.md
 ```
 
-Печатает время до первого кадра и завершает процесс. `MDRS_LOG=1` включает
-информационный лог iced/wgpu, включая выбранный адаптер.
+Скрипт собирает release-бинарь с низким приоритетом, запускает его в rootless
+podman без сети и хостовых сокетов под вложенным sway. Окно приложения — X11-клиент
+rootless Xwayland внутри этого композитора: так колесо и drag-выделение подаются
+настоящими событиями `xdotool`, а не заглушкой. Скриншоты — `target/screenshot.png`,
+`target/screenshot-scroll.png`, `target/screenshot-selection.png`; замеры
+прокрутки и drag — `target/perf.txt`. Логи — `target/sandbox-app.log` и
+`target/sandbox-sway.log`. Без `/dev/dri/renderD*` запуск не выполняется,
+программный рендер запрещён.
+
+Приёмка производительности прокрутки и drag:
+
+```
+scripts/sandbox-perf.sh [path/to/file.md]
+```
+
+Скрипт повторяет документ до большого файла, гоняет приёмку из `sandbox.sh`,
+проверяет смену кадра и долю CPU процесса и падает, если прокрутка или drag
+занимают целое ядро.
+
+Диагностика:
+
+```
+direnv exec . chrt -i 0 nice -n 19 ionice -c 3 cargo build --release
+```
+
+`target/sandbox-app.log` содержит информационный лог iced/wgpu, включая
+выбранный адаптер.
 
 ## Замеры запуска
 

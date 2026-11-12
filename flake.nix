@@ -29,8 +29,11 @@
           hyperfine
           rustc
           rustfmt
+          sway
+          vulkan-tools
           wtype
           xdotool
+          xwayland
         ]);
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtime;
       };

@@ -1,12 +1,12 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use iced::advanced::graphics::text::cosmic_text::Cursor;
 use iced::widget::markdown::Uri;
 use iced::widget::text::Span;
-use iced::{Point, Rectangle, Size, Vector};
+use iced::{Point, Size};
 
-use crate::selection::Selection;
+use crate::selection::block_source::BlockSource;
+use crate::selection::document_geometry::{Glyph, VisualLine};
 use crate::selection::inline_atom::{Atom, InlineConfig};
 use crate::selection::inline_atomize::{atomize, logical_text};
 use crate::selection::text_layout::LayoutChange;
@@ -56,7 +56,10 @@ impl InlineLayout {
         config: InlineConfig,
         max_width: f32,
     ) -> LayoutChange {
-        let spans_changed = self.spans.as_deref() != Some(spans.as_ref());
+        let spans_changed = self
+            .spans
+            .as_ref()
+            .is_none_or(|current| !Arc::ptr_eq(current, spans));
         let config_changed = self.config != Some(config);
 
         if spans_changed || config_changed {
@@ -86,8 +89,59 @@ impl InlineLayout {
         &self.lines
     }
 
+    pub(super) fn point_in_text(&self, point: Point) -> bool {
+        self.lines.iter().any(|line| {
+            let width = line.items.last().map_or(0.0, |item| item.x + item.width);
+
+            point.y >= line.top
+                && point.y <= line.top + line.height
+                && point.x >= 0.0
+                && point.x <= width
+        })
+    }
+
     pub(super) fn size(&self) -> Size {
         self.size
+    }
+    pub(super) fn visual_lines(&self, source: &BlockSource) -> Vec<VisualLine> {
+        self.lines
+            .iter()
+            .filter_map(|line| {
+                let mut glyphs = Vec::new();
+
+                for item in &line.items {
+                    if let Some(space) = &item.space {
+                        glyphs.push(Glyph {
+                            x: item.x - space.width,
+                            width: space.width,
+                            start: space.range.start,
+                            end: space.range.end,
+                        });
+                    }
+
+                    let atom = &self.atoms[item.atom];
+                    glyphs.push(Glyph {
+                        x: item.x,
+                        width: item.width,
+                        start: atom.range.start + item.range.start,
+                        end: atom.range.start + item.range.end,
+                    });
+                }
+
+                let first = glyphs.first()?;
+                let last = glyphs.last()?;
+                let logical = first.start..last.end;
+
+                Some(VisualLine {
+                    top: line.top,
+                    height: line.height,
+                    left: first.x,
+                    source: source.source_range(logical.clone()),
+                    logical,
+                    glyphs,
+                })
+            })
+            .collect()
     }
 
     #[cfg(test)]
@@ -95,6 +149,7 @@ impl InlineLayout {
         &self.logical
     }
 
+    #[cfg(test)]
     pub(super) fn text_between(&self, from: usize, to: usize) -> Option<String> {
         let from = from.min(to).min(self.logical.len());
         let to = to.max(from).min(self.logical.len());
@@ -156,67 +211,6 @@ impl InlineLayout {
         }
 
         None
-    }
-
-    pub(super) fn selection_bounds(&self, from: usize, to: usize) -> Vec<Rectangle> {
-        let start = from.min(to);
-        let end = from.max(to);
-        let mut bounds: Vec<Rectangle> = Vec::new();
-
-        if start == end {
-            return bounds;
-        }
-
-        for line in &self.lines {
-            for item in &line.items {
-                if let Some(space) = &item.space {
-                    let from = start.max(space.range.start);
-                    let to = end.min(space.range.end);
-
-                    if from < to {
-                        bounds.push(Rectangle::new(
-                            Point::new(item.x - space.width, line.top),
-                            Size::new(space.width, line.height),
-                        ));
-                    }
-                }
-
-                let atom = &self.atoms[item.atom];
-                let item_start = atom.range.start + item.range.start;
-                let item_end = atom.range.start + item.range.end;
-                let selected_start = start.max(item_start);
-                let selected_end = end.min(item_end);
-
-                if selected_start >= selected_end {
-                    continue;
-                }
-
-                let local_start = selected_start - atom.range.start;
-                let local_end = selected_end - atom.range.start;
-                let Some(paragraph) = atom.paragraph() else {
-                    continue;
-                };
-                let selection =
-                    Selection::new(Cursor::new(0, local_start), Cursor::new(0, local_end));
-                let x = item.x - item.offset + atom.content_offset();
-                let y = line.baseline - atom.content_ascent();
-                let offset = Vector::new(x, y);
-                let clip = Rectangle::new(
-                    Point::new(item.x, y),
-                    Size::new(item.width, atom.content_ascent() + atom.content_descent()),
-                );
-
-                bounds.extend(
-                    selection
-                        .bounds(paragraph.buffer())
-                        .into_iter()
-                        .map(|bounds| Rectangle::new(bounds.position() + offset, bounds.size()))
-                        .filter_map(|bounds| bounds.intersection(&clip)),
-                );
-            }
-        }
-
-        bounds
     }
 
     fn reflow(&mut self, max_width: f32) {
@@ -385,9 +379,12 @@ fn finish_line(
 mod tests {
     use super::*;
     use crate::config::{FontChain, Fonts};
+    use crate::markdown::Article;
+    use crate::selection::block_source::BlockSource;
     use crate::selection::inline_atom::InlineConfig;
     use crate::theme::FontBook;
     use iced::advanced::text::{LineHeight, Shaping};
+    use iced::widget::markdown::Item;
     use iced::{Font, Padding, Pixels};
 
     fn font() -> Font {
@@ -532,10 +529,22 @@ mod tests {
     }
 
     #[test]
-    fn resize_keeps_logical_text_and_selection_bounds() {
+    fn visual_lines_cover_logical_text_and_source_line() {
+        let source_text = "alpha code omega";
+        let article = Article::parse(source_text);
+        let paragraph = article
+            .items()
+            .iter()
+            .find_map(|item| match item {
+                Item::Paragraph(text) => Some(text),
+                _ => None,
+            })
+            .expect("paragraph");
+        let source =
+            BlockSource::from_text(paragraph.source().start, article.index().clone(), paragraph);
         let spans: Arc<[Span<'static, Uri>]> = Arc::from(
             vec![
-                Span::new("alpha beta ".to_owned()),
+                Span::new("alpha ".to_owned()),
                 code_span("code"),
                 Span::new(" omega".to_owned()),
             ]
@@ -543,15 +552,22 @@ mod tests {
         );
         let mut layout = InlineLayout::default();
         layout.sync(&spans, config(), 10_000.0);
-        let text = layout.text_between(0, layout.logical().len());
-        let bounds = layout.selection_bounds(0, layout.logical().len());
-        layout.sync(&spans, config(), 60.0);
-        let resized_text = layout.text_between(0, layout.logical().len());
-        let resized_bounds = layout.selection_bounds(0, layout.logical().len());
+        let lines = layout.visual_lines(&source);
 
-        assert_eq!(text, resized_text);
-        assert!(bounds.len() >= 5);
-        assert!(resized_bounds.len() >= 5);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].logical, 0..16);
+        assert_eq!(lines[0].source, 0..source_text.len());
+    }
+
+    #[test]
+    fn point_in_text_is_false_outside_visual_lines() {
+        let spans: Arc<[Span<'static, Uri>]> =
+            Arc::from(vec![Span::new("alpha ".to_owned()), code_span("code")].into_boxed_slice());
+        let mut layout = InlineLayout::default();
+        layout.sync(&spans, config(), 10_000.0);
+
+        assert!(layout.point_in_text(Point::new(1.0, 1.0)));
+        assert!(!layout.point_in_text(Point::new(1.0, 10_000.0)));
     }
 
     #[test]

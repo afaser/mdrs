@@ -26,6 +26,10 @@ pub fn run() -> iced::Result {
         update,
         view,
     )
+    .settings(iced::Settings {
+        vsync: true,
+        ..iced::Settings::default()
+    })
     .title(Program::title)
     .theme(theme)
     .default_font(default_font)

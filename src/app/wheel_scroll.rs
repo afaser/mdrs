@@ -1,24 +1,93 @@
+use std::cell::Cell;
+use std::rc::Rc;
+use std::time::Instant;
+
 use iced::advanced::widget::{Operation, Tree, Widget, tree};
 use iced::advanced::{Clipboard, Layout, Shell, layout, overlay, renderer};
+use iced::widget::scrollable::{self, AbsoluteOffset};
 use iced::{Element, Event, Length, Rectangle, Size, Vector, keyboard, mouse};
 
 use crate::app::Message;
+use crate::app::scroll::Scroll;
+use crate::config::Wheel;
+use crate::selection::Generation;
 
 pub struct WheelScroll<'a> {
     content: Element<'a, Message>,
+    wheel: Wheel,
+    generation: Generation,
+    offset: Rc<Cell<f32>>,
 }
 
 impl<'a> WheelScroll<'a> {
-    pub fn new(content: impl Into<Element<'a, Message>>) -> Self {
+    pub fn new(
+        content: impl Into<Element<'a, Message>>,
+        wheel: Wheel,
+        generation: Generation,
+        offset: Rc<Cell<f32>>,
+    ) -> Self {
         Self {
             content: content.into(),
+            wheel,
+            generation,
+            offset,
         }
+    }
+
+    fn sync_scroll(&self, tree: &mut Tree, layout: Layout<'_>) {
+        let bounds = layout.bounds();
+        let Some(content) = layout.children().next() else {
+            return;
+        };
+        let content_bounds = content.bounds();
+        let limit = vertical_limit(bounds, content_bounds);
+        let scrollable: &scrollable::State = tree.children[0].state.downcast_ref();
+        let offset = scrollable.absolute_offset(bounds, content_bounds);
+        let state: &mut WheelState = tree.state.downcast_mut();
+
+        state.scroll.set_limit(limit);
+        state.scroll.remember(offset, limit);
+        self.offset.set(offset.y);
+    }
+
+    fn apply_offset(&self, tree: &mut Tree, offset: AbsoluteOffset) {
+        let state: &mut scrollable::State = tree.children[0].state.downcast_mut();
+        state.set_offset(AbsoluteOffset {
+            x: None,
+            y: Some(offset.y),
+        });
+        self.offset.set(offset.y);
     }
 }
 
-#[derive(Default)]
 struct WheelState {
     modifiers: keyboard::Modifiers,
+    scroll: Scroll,
+    generation: Generation,
+}
+
+impl WheelState {
+    fn new(wheel: Wheel, generation: Generation, offset: f32) -> Self {
+        let mut scroll = Scroll::new(wheel);
+        scroll.remember(AbsoluteOffset { x: 0.0, y: offset }, 0.0);
+
+        Self {
+            modifiers: keyboard::Modifiers::default(),
+            scroll,
+            generation,
+        }
+    }
+
+    fn sync(&mut self, wheel: Wheel, generation: Generation, offset: f32) {
+        if self.generation == generation {
+            return;
+        }
+
+        self.generation = generation;
+        self.scroll = Scroll::new(wheel);
+        self.scroll
+            .remember(AbsoluteOffset { x: 0.0, y: offset }, 0.0);
+    }
 }
 
 impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
@@ -27,7 +96,11 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(WheelState::default())
+        tree::State::new(WheelState::new(
+            self.wheel,
+            self.generation,
+            self.offset.get(),
+        ))
     }
 
     fn children(&self) -> Vec<Tree> {
@@ -48,9 +121,23 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
         renderer: &iced::Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        self.content
+        let node = self
+            .content
             .as_widget_mut()
-            .layout(&mut tree.children[0], renderer, limits)
+            .layout(&mut tree.children[0], renderer, limits);
+        let bounds = node.bounds();
+        let content_bounds = node.children().first().map(|child| child.bounds());
+        let state: &mut WheelState = tree.state.downcast_mut();
+
+        state.sync(self.wheel, self.generation, self.offset.get());
+
+        if let Some(content_bounds) = content_bounds {
+            state
+                .scroll
+                .set_limit(vertical_limit(bounds, content_bounds));
+        }
+
+        node
     }
 
     fn draw(
@@ -97,17 +184,57 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        let state: &mut WheelState = tree.state.downcast_mut();
+        {
+            let state: &mut WheelState = tree.state.downcast_mut();
+            state.sync(self.wheel, self.generation, self.offset.get());
 
-        if let Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) = event {
-            state.modifiers = *modifiers;
+            if let Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) = event {
+                state.modifiers = *modifiers;
+            }
         }
+
+        let modifiers = {
+            let state: &WheelState = tree.state.downcast_ref();
+            state.modifiers
+        };
 
         if let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event
             && cursor.is_over(layout.bounds())
-            && captures_wheel(*delta, state.modifiers)
+            && captures_wheel(*delta, modifiers)
         {
-            shell.publish(Message::Wheeled(*delta));
+            self.sync_scroll(tree, layout);
+            let now = Instant::now();
+            let offset = {
+                let state: &mut WheelState = tree.state.downcast_mut();
+                state.scroll.wheel(*delta, now);
+                state.scroll.frame(now)
+            };
+
+            if let Some(offset) = offset {
+                self.apply_offset(tree, offset);
+            }
+
+            shell.capture_event();
+            shell.request_redraw();
+            return;
+        }
+
+        if let Event::Window(iced::window::Event::RedrawRequested(now)) = event {
+            let (offset, moving) = {
+                let state: &mut WheelState = tree.state.downcast_mut();
+                let offset = state.scroll.frame(*now);
+
+                (offset, state.scroll.moving())
+            };
+
+            if let Some(offset) = offset {
+                self.apply_offset(tree, offset);
+            }
+
+            if moving {
+                shell.request_redraw();
+            }
+
             shell.capture_event();
             return;
         }
@@ -122,6 +249,7 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
             shell,
             viewport,
         );
+        self.sync_scroll(tree, layout);
     }
 
     fn mouse_interaction(
@@ -157,6 +285,10 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelScroll<'a> {
             translation,
         )
     }
+}
+
+fn vertical_limit(bounds: Rectangle, content_bounds: Rectangle) -> f32 {
+    (content_bounds.height - bounds.height).max(0.0)
 }
 
 fn wheel_vertical(delta: mouse::ScrollDelta) -> f32 {
@@ -217,8 +349,51 @@ mod tests {
     }
 
     #[test]
+    fn generation_change_resets_motion_to_current_offset() {
+        let start = Instant::now();
+        let mut state = WheelState::new(Wheel::default(), Generation::new(), 0.0);
+        state
+            .scroll
+            .remember(AbsoluteOffset { x: 0.0, y: 0.0 }, 1000.0);
+        state
+            .scroll
+            .wheel(mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 }, start);
+        state
+            .scroll
+            .frame(start + std::time::Duration::from_millis(16));
+        let mut generation = Generation::new();
+        generation.advance();
+
+        state.sync(Wheel::default(), generation, 320.0);
+
+        assert!(!state.scroll.moving());
+        assert_eq!(state.scroll.offset().y, 320.0);
+    }
+
+    #[test]
+    fn vertical_limit_never_becomes_negative() {
+        let empty = Rectangle {
+            y: 0.0,
+            ..Rectangle::default()
+        };
+        let content = Rectangle {
+            height: 120.0,
+            ..Rectangle::default()
+        };
+
+        assert_eq!(vertical_limit(empty, content), 120.0);
+        assert_eq!(vertical_limit(content, empty), 0.0);
+    }
+
+    #[test]
     fn diff_preserves_child_tree() {
-        let element: Element<Message> = WheelScroll::new(iced::widget::text("content")).into();
+        let element: Element<Message> = WheelScroll::new(
+            iced::widget::text("content"),
+            Wheel::default(),
+            Generation::new(),
+            Rc::new(Cell::new(0.0)),
+        )
+        .into();
         let mut tree = Tree::new(&element);
 
         element.as_widget().diff(&mut tree);

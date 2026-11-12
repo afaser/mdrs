@@ -35,4 +35,5 @@ pub use motion::Wheel;
 pub use palette::Palette;
 pub use role::{Heading, Insets, Role};
 pub use scrollbars::Bar;
+pub use selection::SelectionHeadings;
 pub use text::Text;

@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use iced::advanced::text::{LineHeight, Shaping, Wrapping};
@@ -8,7 +9,8 @@ use iced::{Element, Pixels};
 
 use crate::config::{Config, Role};
 use crate::selection::{
-    Decoration, Generation, InlineConfig, InlineFlow, SelectableText, TextColors,
+    BlockSource, Decoration, DocumentGeometry, DocumentSelection, Generation, InlineConfig,
+    InlineFlow, SelectableText, TextColors,
 };
 use crate::theme::FontMetricsBook;
 use crate::theme::font::FontBook;
@@ -62,10 +64,17 @@ pub(super) struct ViewerText {
     inline: RefCell<SpanCache>,
     metrics: FontMetricsBook,
     generation: Generation,
+    selection: Rc<RefCell<DocumentSelection>>,
+    geometry: Rc<RefCell<DocumentGeometry>>,
 }
 
 impl ViewerText {
-    pub(super) fn new(config: Config, fonts: FontBook) -> Self {
+    pub(super) fn new(
+        config: Config,
+        fonts: FontBook,
+        selection: Rc<RefCell<DocumentSelection>>,
+        geometry: Rc<RefCell<DocumentGeometry>>,
+    ) -> Self {
         Self {
             config,
             fonts,
@@ -73,6 +82,8 @@ impl ViewerText {
             inline: RefCell::default(),
             metrics: FontMetricsBook::default(),
             generation: Generation::default(),
+            selection,
+            geometry,
         }
     }
 
@@ -98,13 +109,14 @@ impl ViewerText {
         role: TextRole,
         spans: Arc<[Span<'static, Uri>]>,
         size: Pixels,
+        source: Option<BlockSource>,
     ) -> SelectableText<'a, Message>
     where
         Message: From<Uri> + From<Option<String>> + 'a,
     {
         let prepared = self.prepare(role, spans);
 
-        self.selectable_from(role, prepared, size)
+        self.selectable_from(role, prepared, size, source)
     }
 
     pub(super) fn flow_text<'a, Message>(
@@ -112,6 +124,7 @@ impl ViewerText {
         role: TextRole,
         spans: Arc<[Span<'static, Uri>]>,
         size: Pixels,
+        source: Option<BlockSource>,
     ) -> Element<'a, Message, iced::Theme, iced::Renderer>
     where
         Message: From<Uri> + From<Option<String>> + 'a,
@@ -120,7 +133,7 @@ impl ViewerText {
         let has_code = prepared.spans.iter().any(|span| span.highlight.is_some());
 
         if role == TextRole::Code || !has_code {
-            return self.selectable_from(role, prepared, size).into();
+            return self.selectable_from(role, prepared, size, source).into();
         }
 
         let space = self
@@ -136,12 +149,22 @@ impl ViewerText {
             space,
         };
 
-        InlineFlow::new(prepared.spans, config, prepared.colors)
+        let source = match (role, source) {
+            (TextRole::Heading(level), Some(source)) => Some(source.heading(level)),
+            (_, source) => source,
+        };
+        let flow = InlineFlow::new(prepared.spans, config, prepared.colors)
             .decoration(prepared.decoration)
             .generation(self.generation)
+            .selection(self.selection.clone())
+            .geometry(self.geometry.clone())
             .on_link_click(Message::from)
-            .on_selection(Message::from)
-            .into()
+            .on_selection(Message::from);
+
+        match source {
+            Some(source) => flow.source(source).into(),
+            None => flow.into(),
+        }
     }
 
     fn prepare(&self, role: TextRole, spans: Arc<[Span<'static, Uri>]>) -> PreparedText {
@@ -161,6 +184,10 @@ impl ViewerText {
         let colors = TextColors {
             text: role_config.color.resolve(&self.config.palette),
             selection: self.config.selection.color.resolve(&self.config.palette),
+            radius: self.config.selection.radius,
+            height: self.config.selection.height,
+            headings: self.config.selection.headings,
+            code_height: self.config.selection.code_height,
         };
         let decoration = Decoration {
             underline_offset: self.config.selection.underline_offset,
@@ -186,18 +213,31 @@ impl ViewerText {
         role: TextRole,
         prepared: PreparedText,
         size: Pixels,
+        source: Option<BlockSource>,
     ) -> SelectableText<'a, Message>
     where
         Message: From<Uri> + From<Option<String>> + 'a,
     {
-        SelectableText::new(prepared.spans, size, prepared.font, prepared.colors)
+        let text = SelectableText::new(prepared.spans, size, prepared.font, prepared.colors)
             .line_height(LineHeight::Relative(prepared.role.line_height))
             .wrapping(role.wrapping())
             .generation(self.generation)
             .decoration(prepared.decoration)
             .shaping(prepared.shaping)
+            .selection(self.selection.clone())
+            .geometry(self.geometry.clone())
             .on_link_click(Message::from)
-            .on_selection(Message::from)
+            .on_selection(Message::from);
+
+        let source = match (role, source) {
+            (TextRole::Heading(level), Some(source)) => Some(source.heading(level)),
+            (_, source) => source,
+        };
+
+        match source {
+            Some(source) => text.source(source),
+            None => text,
+        }
     }
 
     fn style_links(&self, spans: Arc<[Span<'static, Uri>]>) -> Arc<[Span<'static, Uri>]> {

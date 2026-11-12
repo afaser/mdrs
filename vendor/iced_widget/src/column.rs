@@ -275,6 +275,12 @@ where
             .zip(&mut tree.children)
             .zip(layout.children())
         {
+            if matches!(event, Event::Mouse(mouse::Event::CursorMoved { .. }))
+                && !layout.bounds().intersects(viewport)
+            {
+                continue;
+            }
+
             child.as_widget_mut().update(
                 tree, event, layout, cursor, renderer, clipboard, shell,
                 viewport,
@@ -294,6 +300,7 @@ where
             .iter()
             .zip(&tree.children)
             .zip(layout.children())
+            .filter(|(_, layout)| cursor.is_over(layout.bounds()))
             .map(|((child, tree), layout)| {
                 child
                     .as_widget()

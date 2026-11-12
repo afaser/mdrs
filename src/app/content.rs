@@ -58,8 +58,9 @@ impl Content {
 
 fn ready(document: Document) -> Content {
     let base = document.path().parent().unwrap_or_else(|| Path::new(""));
-    let source = crate::markdown::resolve(document.source(), base);
-    let article = Article::parse(&source);
+    let original = document.source();
+    let source = crate::markdown::resolve(original, base);
+    let article = Article::parse_with_source(original, &source);
 
     Content::Ready { document, article }
 }

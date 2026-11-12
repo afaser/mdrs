@@ -240,6 +240,10 @@ theme {
 
     selection {
         color "selection"
+        radius 3
+        height 22
+        headings { h1 44; h2 39; h3 33; h4 28; h5 22; h6 22 }
+        code-height 17
         decoration {
             underline-offset 0.08
             strikethrough-offset 0.5

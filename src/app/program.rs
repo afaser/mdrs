@@ -1,18 +1,20 @@
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::Instant;
 
-use iced::widget::scrollable::{AbsoluteOffset, Viewport};
+use iced::widget::scrollable::AbsoluteOffset;
 use iced::{Subscription, Task};
 
 use crate::app::Content;
 use crate::app::Message;
-use crate::app::Scroll;
 use crate::app::gpu::{self, GpuCheck, GpuState};
 use crate::app::selection::SelectionState;
 use crate::app::startup::Startup;
 use crate::app::subscription;
 use crate::config::Config;
 use crate::open::Dialog;
+use crate::selection::{DocumentGeometry, DocumentSelection};
 use crate::theme::{FontBook, Viewer};
 use crate::watch::FileWatcher;
 
@@ -24,9 +26,11 @@ pub struct Program {
     viewer: Viewer,
     startup: Option<Startup>,
     gpu: GpuState,
-    scroll: Scroll,
     dialog: Dialog,
     selection: SelectionState,
+    document_selection: Rc<RefCell<DocumentSelection>>,
+    geometry: Rc<RefCell<DocumentGeometry>>,
+    scroll_offset: Rc<Cell<f32>>,
 }
 
 impl Program {
@@ -41,17 +45,28 @@ impl Program {
             startup.mark("boot");
         }
 
+        let document_selection = Rc::new(RefCell::new(DocumentSelection::default()));
+        let geometry = Rc::new(RefCell::new(DocumentGeometry::default()));
+        let scroll_offset = Rc::new(Cell::new(0.0));
+        let viewer = Viewer::new(
+            config.clone(),
+            fonts.clone(),
+            Rc::clone(&document_selection),
+            Rc::clone(&geometry),
+        );
         let program = Self {
             config: config.clone(),
-            fonts: fonts.clone(),
+            fonts,
             content,
             watcher,
-            viewer: Viewer::new(config.clone(), fonts),
+            viewer,
             startup,
             gpu: GpuState::Unknown,
-            scroll: Scroll::new(config.motion.wheel),
             dialog: Dialog::default(),
             selection: SelectionState::default(),
+            document_selection,
+            geometry,
+            scroll_offset,
         };
 
         (program, Task::none())
@@ -98,6 +113,10 @@ impl Program {
         &self.gpu
     }
 
+    pub(super) fn needs_redraw_event(&self) -> bool {
+        self.startup.is_some() || matches!(self.gpu, GpuState::Unknown | GpuState::Checking)
+    }
+
     pub(super) fn watcher(&self) -> Option<&FileWatcher> {
         self.watcher.as_ref()
     }
@@ -110,8 +129,8 @@ impl Program {
         self.viewer.clear_cache();
         self.content = Content::open(path.clone());
         self.watcher = Some(FileWatcher::new(path));
-        self.scroll.reset();
-        self.clear_selections();
+        self.scroll_offset.set(0.0);
+        self.reset_selections();
     }
 
     pub(super) fn request_dialog(&mut self) {
@@ -126,31 +145,14 @@ impl Program {
         self.viewer.clear_cache();
         let previous = std::mem::take(&mut self.content);
         self.content = previous.reload();
-        self.clear_selections();
-    }
-
-    pub(super) fn remember_scroll(&mut self, viewport: Viewport) {
-        self.scroll.remember(viewport);
+        self.reset_selections();
     }
 
     pub(super) fn scroll(&self) -> AbsoluteOffset {
-        self.scroll.offset()
-    }
-
-    pub(super) fn wheel(&mut self, delta: iced::mouse::ScrollDelta, now: Instant) {
-        self.scroll.wheel(delta, now);
-    }
-
-    pub(super) fn frame(&mut self, now: Instant) -> Option<AbsoluteOffset> {
-        self.scroll.frame(now)
-    }
-
-    pub(super) fn scrolling(&self) -> bool {
-        self.scroll.moving()
-    }
-
-    pub(super) fn stop_scroll(&mut self) {
-        self.scroll.stop();
+        AbsoluteOffset {
+            x: 0.0,
+            y: self.scroll_offset.get(),
+        }
     }
 
     pub(super) fn selection(&self) -> Option<&str> {
@@ -161,8 +163,38 @@ impl Program {
         self.selection.set(selection);
     }
 
+    pub(super) fn clear_copy(&mut self) {
+        self.selection.clear();
+    }
+
     pub(super) fn clear_selections(&mut self) {
         self.selection.clear();
+        self.document_selection.borrow_mut().clear();
+    }
+
+    pub(super) fn reset_selections(&mut self) {
+        self.selection.reset();
+        let generation = self.selection.generation();
+        self.document_selection
+            .borrow_mut()
+            .sync_generation(generation);
+        self.geometry.borrow_mut().reset(generation);
+    }
+
+    pub(super) fn generation(&self) -> crate::selection::Generation {
+        self.selection.generation()
+    }
+
+    pub(super) fn document_selection(&self) -> Rc<RefCell<DocumentSelection>> {
+        Rc::clone(&self.document_selection)
+    }
+
+    pub(super) fn geometry(&self) -> Rc<RefCell<DocumentGeometry>> {
+        Rc::clone(&self.geometry)
+    }
+
+    pub(super) fn scroll_offset(&self) -> Rc<Cell<f32>> {
+        Rc::clone(&self.scroll_offset)
     }
 
     pub(super) fn finish_startup(&mut self) -> Option<f32> {
@@ -178,7 +210,12 @@ impl Program {
     }
 
     pub(super) fn sync_viewer_generation(&mut self) {
-        self.viewer.set_generation(self.selection.generation());
+        let generation = self.selection.generation();
+        self.viewer.set_generation(generation);
+        self.document_selection
+            .borrow_mut()
+            .sync_generation(generation);
+        self.geometry.borrow_mut().reset(generation);
     }
 }
 

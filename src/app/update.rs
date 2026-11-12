@@ -60,24 +60,12 @@ fn handle(program: &mut Program, message: Message) -> Task<Message> {
         }
         Message::Redrawn => first_frame(program),
         Message::Reload => reload(program),
-        Message::Scrolled(viewport) => {
-            program.remember_scroll(viewport);
-            Task::none()
-        }
-        Message::ScrollFrame(now) => match program.frame(now) {
-            Some(offset) => scroll_to(offset),
-            None => Task::none(),
-        },
         Message::Selected(Some(selection)) => {
             program.set_selection(selection);
             Task::none()
         }
         Message::Selected(None) => {
-            program.clear_selections();
-            Task::none()
-        }
-        Message::Wheeled(delta) => {
-            program.wheel(delta, Instant::now());
+            program.clear_copy();
             Task::none()
         }
     }
@@ -89,7 +77,6 @@ fn open_document(program: &mut Program, path: std::path::PathBuf) -> Task<Messag
 }
 
 fn reload(program: &mut Program) -> Task<Message> {
-    program.stop_scroll();
     program.reload();
     let offset = program.scroll();
 

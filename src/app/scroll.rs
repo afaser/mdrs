@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use iced::mouse::ScrollDelta;
-use iced::widget::scrollable::{AbsoluteOffset, Viewport};
+use iced::widget::scrollable::AbsoluteOffset;
 
 use crate::app::motion::Motion;
 use crate::config::Wheel;
@@ -33,6 +33,7 @@ impl Scroll {
         }
     }
 
+    #[cfg(test)]
     pub fn offset(&self) -> AbsoluteOffset {
         self.offset
     }
@@ -41,20 +42,12 @@ impl Scroll {
         self.motion.is_some()
     }
 
-    pub fn reset(&mut self) {
-        self.offset = AbsoluteOffset::default();
-        self.limit = 0.0;
-        self.motion = None;
+    pub fn remember(&mut self, offset: AbsoluteOffset, limit: f32) {
+        self.remember_offset(offset, limit);
     }
 
-    pub fn stop(&mut self) {
-        if let Some(motion) = self.motion.take() {
-            self.offset.y = motion.issued();
-        }
-    }
-
-    pub fn remember(&mut self, viewport: Viewport) {
-        self.remember_offset(viewport.absolute_offset(), vertical_limit(viewport));
+    pub fn set_limit(&mut self, limit: f32) {
+        self.limit = limit;
     }
 
     pub fn wheel(&mut self, delta: ScrollDelta, now: Instant) {
@@ -124,13 +117,6 @@ fn wheel_distance(delta: ScrollDelta, wheel: Wheel) -> f32 {
     -notches * wheel.lines_per_notch * wheel.line_height
 }
 
-fn vertical_limit(viewport: Viewport) -> f32 {
-    let bounds = viewport.bounds();
-    let content = viewport.content_bounds();
-
-    (content.height - bounds.height).max(0.0)
-}
-
 fn is_zero(value: f32) -> bool {
     value.abs() <= f32::EPSILON
 }
@@ -142,7 +128,7 @@ mod tests {
 
     fn ready(limit: f32) -> Scroll {
         let mut scroll = Scroll::new(Wheel::default());
-        scroll.remember_offset(AbsoluteOffset { x: 0.0, y: 0.0 }, limit);
+        scroll.remember(AbsoluteOffset { x: 0.0, y: 0.0 }, limit);
         scroll
     }
 
@@ -168,7 +154,7 @@ mod tests {
             ..Wheel::default()
         };
         let mut scroll = Scroll::new(wheel);
-        scroll.remember_offset(AbsoluteOffset { x: 0.0, y: 0.0 }, 1000.0);
+        scroll.remember(AbsoluteOffset { x: 0.0, y: 0.0 }, 1000.0);
         let start = Instant::now();
 
         scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, start);
@@ -186,7 +172,7 @@ mod tests {
             ..Wheel::default()
         };
         let mut scroll = Scroll::new(wheel);
-        scroll.remember_offset(AbsoluteOffset { x: 0.0, y: 0.0 }, 1000.0);
+        scroll.remember(AbsoluteOffset { x: 0.0, y: 0.0 }, 1000.0);
         let start = Instant::now();
 
         scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, start);
@@ -214,7 +200,7 @@ mod tests {
     #[test]
     fn wheel_up_moves_toward_start() {
         let mut scroll = ready(1000.0);
-        scroll.remember_offset(AbsoluteOffset { x: 0.0, y: 500.0 }, 1000.0);
+        scroll.remember(AbsoluteOffset { x: 0.0, y: 500.0 }, 1000.0);
         let start = Instant::now();
 
         scroll.wheel(ScrollDelta::Lines { x: 0.0, y: 1.0 }, start);
@@ -232,7 +218,7 @@ mod tests {
         assert!(!scroll.moving());
         assert_eq!(scroll.offset().y, 0.0);
 
-        scroll.remember_offset(AbsoluteOffset { x: 0.0, y: 192.0 }, 192.0);
+        scroll.remember(AbsoluteOffset { x: 0.0, y: 192.0 }, 192.0);
         scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, Instant::now());
         assert!(!scroll.moving());
         assert_eq!(scroll.offset().y, 192.0);
@@ -282,7 +268,7 @@ mod tests {
         scroll.frame(Instant::now() + Duration::from_millis(16));
         assert!(scroll.moving());
 
-        scroll.remember_offset(AbsoluteOffset { x: 0.0, y: 500.0 }, 1000.0);
+        scroll.remember(AbsoluteOffset { x: 0.0, y: 500.0 }, 1000.0);
 
         assert!(!scroll.moving());
         assert_eq!(scroll.offset().y, 500.0);
@@ -293,22 +279,8 @@ mod tests {
             .frame(Instant::now() + Duration::from_millis(32))
             .expect("frame");
 
-        scroll.remember_offset(issued, 1000.0);
+        scroll.remember(issued, 1000.0);
 
         assert!(scroll.moving());
-    }
-
-    #[test]
-    fn stop_keeps_issued_position() {
-        let mut scroll = ready(1000.0);
-        scroll.wheel(ScrollDelta::Lines { x: 0.0, y: -1.0 }, Instant::now());
-        let issued = scroll
-            .frame(Instant::now() + Duration::from_millis(32))
-            .expect("frame");
-
-        scroll.stop();
-
-        assert!(!scroll.moving());
-        assert_eq!(scroll.offset(), issued);
     }
 }

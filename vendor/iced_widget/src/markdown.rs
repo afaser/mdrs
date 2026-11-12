@@ -250,9 +250,26 @@ pub struct Row {
     cells: Vec<Vec<Item>>,
 }
 
+impl Row {
+    /// Returns the cells of the row.
+    pub fn cells(&self) -> &[Vec<Item>] {
+        &self.cells
+    }
+}
+
+/// A mapping between logical text bytes and source Markdown bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSegment {
+    /// The logical text range.
+    pub logical: Range<usize>,
+    /// The source Markdown range.
+    pub source: Range<usize>,
+}
+
 /// A bunch of parsed Markdown text.
 #[derive(Debug, Clone)]
 pub struct Text {
+    source: Range<usize>,
     spans: Vec<Span>,
     last_style: Cell<Option<Style>>,
     last_styled_spans: RefCell<Arc<[text::Span<'static, Uri>]>>,
@@ -260,11 +277,39 @@ pub struct Text {
 
 impl Text {
     fn new(spans: Vec<Span>) -> Self {
+        let source = match (spans.first(), spans.last()) {
+            (Some(first), Some(last)) => first.source().start..last.source().end,
+            _ => 0..0,
+        };
+
         Self {
+            source,
             spans,
             last_style: Cell::default(),
             last_styled_spans: RefCell::default(),
         }
+    }
+
+    /// Returns the source Markdown range covered by this text.
+    pub fn source(&self) -> Range<usize> {
+        self.source.clone()
+    }
+
+    /// Returns the logical-to-source mapping for every visible span.
+    pub fn source_segments(&self) -> Vec<SourceSegment> {
+        let mut segments = Vec::with_capacity(self.spans.len());
+        let mut logical_start = 0;
+
+        for span in &self.spans {
+            let logical_end = logical_start + span.text().len();
+            segments.push(SourceSegment {
+                logical: logical_start..logical_end,
+                source: span.source().clone(),
+            });
+            logical_start = logical_end;
+        }
+
+        segments
     }
 
     /// Returns the [`rich_text()`] spans ready to be used for the given style.
@@ -287,6 +332,7 @@ impl Text {
 enum Span {
     Standard {
         text: String,
+        source: Range<usize>,
         strikethrough: bool,
         link: Option<Uri>,
         strong: bool,
@@ -296,16 +342,34 @@ enum Span {
     #[cfg(feature = "highlighter")]
     Highlight {
         text: String,
+        source: Range<usize>,
         color: Option<Color>,
         font: Option<Font>,
     },
 }
 
 impl Span {
+    fn text(&self) -> &str {
+        match self {
+            Span::Standard { text, .. } => text,
+            #[cfg(feature = "highlighter")]
+            Span::Highlight { text, .. } => text,
+        }
+    }
+
+    fn source(&self) -> &Range<usize> {
+        match self {
+            Span::Standard { source, .. } => source,
+            #[cfg(feature = "highlighter")]
+            Span::Highlight { source, .. } => source,
+        }
+    }
+
     fn view(&self, style: &Style) -> text::Span<'static, Uri> {
         match self {
             Span::Standard {
                 text,
+                source: _,
                 strikethrough,
                 link,
                 strong,
@@ -345,9 +409,12 @@ impl Span {
                 }
             }
             #[cfg(feature = "highlighter")]
-            Span::Highlight { text, color, font } => {
-                span(text.clone()).color_maybe(*color).font_maybe(*font)
-            }
+            Span::Highlight {
+                text,
+                source: _,
+                color,
+                font,
+            } => span(text.clone()).color_maybe(*color).font_maybe(*font),
         }
     }
 }
@@ -440,7 +507,7 @@ struct State {
 #[cfg(feature = "highlighter")]
 #[derive(Debug)]
 struct Highlighter {
-    lines: Vec<(String, Vec<Span>)>,
+    lines: Vec<(String, Range<usize>, Vec<Span>)>,
     language: String,
     parser: iced_highlighter::Stream,
     current: usize,
@@ -466,9 +533,9 @@ impl Highlighter {
         self.current = 0;
     }
 
-    pub fn highlight_line(&mut self, text: &str) -> &[Span] {
+    pub fn highlight_line(&mut self, text: &str, source: Range<usize>) -> &[Span] {
         match self.lines.get(self.current) {
-            Some(line) if line.0 == text => {}
+            Some(line) if line.0 == text && line.1 == source => {}
             _ => {
                 if self.current + 1 < self.lines.len() {
                     log::debug!("Resetting highlighter...");
@@ -496,6 +563,7 @@ impl Highlighter {
                 for (range, highlight) in self.parser.highlight_line(text) {
                     spans.push(Span::Highlight {
                         text: text[range].to_owned(),
+                        source: source.clone(),
                         color: highlight.color(),
                         font: highlight.font(),
                     });
@@ -505,7 +573,7 @@ impl Highlighter {
                     let _ = self.lines.pop();
                 }
 
-                self.lines.push((text.to_owned(), spans));
+                self.lines.push((text.to_owned(), source.clone(), spans));
             }
         }
 
@@ -515,7 +583,7 @@ impl Highlighter {
             .lines
             .get(self.current - 1)
             .expect("Line must be parsed")
-            .1
+            .2
     }
 }
 
@@ -936,19 +1004,32 @@ fn parse_with<'a>(
             if code_block {
                 code.push_str(&text);
 
-                #[cfg(feature = "highlighter")]
-                if let Some(highlighter) = &mut highlighter {
-                    for line in text.lines() {
-                        code_lines.push(Text::new(
-                            highlighter.highlight_line(line).to_vec(),
-                        ));
+                for (line, line_source) in code_line_sources(&text, source) {
+                    #[cfg(feature = "highlighter")]
+                    if let Some(highlighter) = &mut highlighter {
+                        let spans = highlighter
+                            .highlight_line(&line, line_source.clone())
+                            .to_vec();
+                        let spans = match spans.is_empty() {
+                            true => vec![Span::Standard {
+                                text: String::new(),
+                                source: line_source,
+                                strong,
+                                emphasis,
+                                strikethrough,
+                                link: link.clone(),
+                                code: false,
+                            }],
+                            false => spans,
+                        };
+                        code_lines.push(Text::new(spans));
+                        continue;
                     }
-                }
 
-                #[cfg(not(feature = "highlighter"))]
-                for line in text.lines() {
+                    #[cfg(not(feature = "highlighter"))]
                     code_lines.push(Text::new(vec![Span::Standard {
-                        text: line.to_owned(),
+                        text: line,
+                        source: line_source,
                         strong,
                         emphasis,
                         strikethrough,
@@ -962,6 +1043,7 @@ fn parse_with<'a>(
 
             let span = Span::Standard {
                 text: text.into_string(),
+                source,
                 strong,
                 emphasis,
                 strikethrough,
@@ -976,6 +1058,7 @@ fn parse_with<'a>(
         pulldown_cmark::Event::Code(code) if !metadata => {
             let span = Span::Standard {
                 text: code.into_string(),
+                source,
                 strong,
                 emphasis,
                 strikethrough,
@@ -989,6 +1072,7 @@ fn parse_with<'a>(
         pulldown_cmark::Event::SoftBreak if !metadata => {
             spans.push(Span::Standard {
                 text: String::from(" "),
+                source,
                 strikethrough,
                 strong,
                 emphasis,
@@ -1000,6 +1084,7 @@ fn parse_with<'a>(
         pulldown_cmark::Event::HardBreak if !metadata => {
             spans.push(Span::Standard {
                 text: String::from("\n"),
+                source,
                 strikethrough,
                 strong,
                 emphasis,
@@ -1026,6 +1111,24 @@ fn parse_with<'a>(
         }
         _ => None,
     })
+}
+
+fn code_line_sources(text: &str, source: Range<usize>) -> Vec<(String, Range<usize>)> {
+    let mut lines = Vec::new();
+    let mut offset = 0;
+
+    for segment in text.split_inclusive('\n') {
+        let content = segment.strip_suffix('\n').unwrap_or(segment);
+        let content = content.strip_suffix('\r').unwrap_or(content);
+        let end = offset + content.len();
+        lines.push((
+            content.to_owned(),
+            source.start + offset..source.start + end,
+        ));
+        offset += segment.len();
+    }
+
+    lines
 }
 
 /// Configuration controlling Markdown rendering in [`view`].

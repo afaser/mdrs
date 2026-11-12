@@ -21,6 +21,10 @@ impl SelectionState {
 
     pub(super) fn clear(&mut self) {
         self.text = None;
+    }
+
+    pub(super) fn reset(&mut self) {
+        self.clear();
         self.generation.advance();
     }
 }

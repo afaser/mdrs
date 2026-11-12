@@ -10,8 +10,10 @@ pub(super) fn subscription(program: &Program) -> Subscription<Message> {
         None => Subscription::none(),
     };
     let dialog = program.dialog().subscription().map(Message::Picked);
-    let redraw = iced::event::listen_raw(redraw_event);
-    let scroll = scroll_subscription(program.scrolling());
+    let redraw = match program.needs_redraw_event() {
+        true => iced::event::listen_raw(redraw_event),
+        false => Subscription::none(),
+    };
     let now = Instant::now();
     let animation = animation_subscription(
         program.viewer().copy_animating(now) || program.viewer().hover_animating(now),
@@ -23,17 +25,8 @@ pub(super) fn subscription(program: &Program) -> Subscription<Message> {
         redraw,
         watcher,
         dialog,
-        scroll,
         animation,
     ])
-}
-
-fn scroll_subscription(scrolling: bool) -> Subscription<Message> {
-    if !scrolling {
-        return Subscription::none();
-    }
-
-    iced::window::frames().map(Message::ScrollFrame)
 }
 
 fn animation_subscription(active: bool) -> Subscription<Message> {

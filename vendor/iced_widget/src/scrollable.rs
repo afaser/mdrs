@@ -804,20 +804,22 @@ where
 
                 let had_input_method = shell.input_method().is_enabled();
 
-                self.content.as_widget_mut().update(
-                    &mut tree.children[0],
-                    event,
-                    content,
-                    cursor,
-                    renderer,
-                    clipboard,
-                    shell,
-                    &Rectangle {
-                        y: bounds.y + translation.y,
-                        x: bounds.x + translation.x,
-                        ..bounds
-                    },
-                );
+                if !matches!(event, Event::Window(window::Event::RedrawRequested(_))) {
+                    self.content.as_widget_mut().update(
+                        &mut tree.children[0],
+                        event,
+                        content,
+                        cursor,
+                        renderer,
+                        clipboard,
+                        shell,
+                        &Rectangle {
+                            y: bounds.y + translation.y,
+                            x: bounds.x + translation.x,
+                            ..bounds
+                        },
+                    );
+                }
 
                 if !had_input_method
                     && let InputMethod::Enabled { cursor, .. } =
@@ -1635,8 +1637,9 @@ fn notify_viewport<Message>(
     true
 }
 
+/// The internal state of a [`Scrollable`].
 #[derive(Debug, Clone, Copy)]
-struct State {
+pub struct State {
     offset_y: Offset,
     offset_x: Offset,
     interaction: Interaction,
@@ -1644,6 +1647,30 @@ struct State {
     last_notified: Option<Viewport>,
     last_scrolled: Option<Instant>,
     is_scrollbar_visible: bool,
+}
+
+impl State {
+    /// Returns the [`AbsoluteOffset`] given the bounds of the [`Scrollable`]
+    /// and its contents.
+    pub fn absolute_offset(
+        &self,
+        bounds: Rectangle,
+        content_bounds: Rectangle,
+    ) -> AbsoluteOffset {
+        AbsoluteOffset {
+            x: self
+                .offset_x
+                .absolute(bounds.width, content_bounds.width),
+            y: self
+                .offset_y
+                .absolute(bounds.height, content_bounds.height),
+        }
+    }
+
+    /// Sets the [`AbsoluteOffset`] of the [`Scrollable`].
+    pub fn set_offset(&mut self, offset: AbsoluteOffset<Option<f32>>) {
+        <State as operation::Scrollable>::scroll_to(self, offset);
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1912,6 +1939,7 @@ impl State {
         )
     }
 
+    /// Returns the position where the vertical scroller was grabbed.
     pub fn y_scroller_grabbed_at(&self) -> Option<f32> {
         let Interaction::YScrollerGrabbed(at) = self.interaction else {
             return None;
@@ -1920,6 +1948,7 @@ impl State {
         Some(at)
     }
 
+    /// Returns the position where the horizontal scroller was grabbed.
     pub fn x_scroller_grabbed_at(&self) -> Option<f32> {
         let Interaction::XScrollerGrabbed(at) = self.interaction else {
             return None;

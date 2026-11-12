@@ -18,7 +18,6 @@ pub use gpu::Gpu;
 pub use message::Message;
 pub use program::Program;
 pub use run::run;
-pub use scroll::Scroll;
 pub use update::update;
 pub use view::view;
 pub use wheel_scroll::WheelScroll;

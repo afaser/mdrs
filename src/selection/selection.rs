@@ -36,23 +36,11 @@ impl Selection {
         }
     }
 
-    pub fn extend(&mut self, cursor: Cursor) {
-        if self.anchor.is_none() {
-            return;
-        }
-
-        self.focus = Some(cursor);
-    }
-
-    pub fn clear(&mut self) {
-        self.anchor = None;
-        self.focus = None;
-    }
-
     fn range(&self) -> Option<SelectionRange> {
         SelectionRange::new(self.anchor?, self.focus?)
     }
 
+    #[cfg(test)]
     pub fn text(&self, buffer: &Buffer) -> Option<String> {
         let range = self.range()?;
         let mut text = String::new();
@@ -90,6 +78,7 @@ impl Selection {
     }
 }
 
+#[cfg(test)]
 fn line_from(line: usize, range: SelectionRange, length: usize) -> usize {
     if line != range.from.line {
         return 0;
@@ -98,6 +87,7 @@ fn line_from(line: usize, range: SelectionRange, length: usize) -> usize {
     range.from.index.min(length)
 }
 
+#[cfg(test)]
 fn line_to(line: usize, range: SelectionRange, length: usize) -> usize {
     if line != range.to.line {
         return length;

@@ -4,7 +4,9 @@ use iced::widget::{container, markdown, rich_text, scrollable};
 use iced::{Element, Length};
 
 use crate::app::{Message, Program, WheelScroll};
+use crate::selection::SelectionSurface;
 use crate::theme;
+use crate::theme::DocumentView;
 
 pub(super) const SCROLL_ID: &str = "document";
 
@@ -17,11 +19,19 @@ pub fn view(program: &Program) -> Element<'_, Message> {
         None => content(program),
     };
 
-    container(body)
+    let document = container(body)
         .padding(program.config().window.padding)
         .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+        .height(Length::Fill);
+
+    SelectionSurface::new(
+        document,
+        program.document_selection(),
+        program.geometry(),
+        program.scroll_offset(),
+        Message::from,
+    )
+    .into()
 }
 
 fn content(program: &Program) -> Element<'_, Message> {
@@ -40,19 +50,25 @@ fn content(program: &Program) -> Element<'_, Message> {
 
     let config = program.config();
     let bar = &config.scrollbars.document;
+    let viewer = DocumentView::new(program.viewer(), article);
     let document = scrollable(markdown::view_with(
         article.items(),
         theme::markdown_settings(config, program.fonts()),
-        program.viewer(),
+        &viewer,
     ))
     .id(SCROLL_ID)
     .direction(scrollable::Direction::Vertical(bar.vertical()))
     .style(theme::scrollbar_style(config, bar))
     .width(Length::Fill)
-    .height(Length::Fill)
-    .on_scroll(Message::Scrolled);
+    .height(Length::Fill);
 
-    WheelScroll::new(document).into()
+    WheelScroll::new(
+        document,
+        config.motion.wheel,
+        program.generation(),
+        program.scroll_offset(),
+    )
+    .into()
 }
 
 fn message(program: &Program, value: String) -> Element<'static, Message> {

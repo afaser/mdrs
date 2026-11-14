@@ -169,9 +169,17 @@ impl ViewerText {
 
     fn prepare(&self, role: TextRole, spans: Arc<[Span<'static>]>) -> PreparedText {
         let role_config = role.role(&self.config);
+        let document = self
+            .fonts
+            .role_font(
+                &self.config.text.body,
+                self.config.text.body.weight,
+                iced::font::Style::Normal,
+            )
+            .unwrap_or_else(|| self.fonts.default_font(&self.config.text.body.fonts));
         let styled = self
             .styler
-            .style(&spans, &role_config, role.key(), &self.fonts);
+            .style(&spans, &role_config, role.key(), &self.fonts, &document);
         let styled = self.style_links(styled);
         let styled = match role {
             TextRole::Code => styled,

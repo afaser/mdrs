@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::text::Span;
 use iced::Pixels;
-use iced::font::Style;
+use iced::font::{Style, Weight};
 
 use crate::config::{Role, Script};
 use crate::theme::font::FontBook;
@@ -72,6 +72,7 @@ impl SpanStyler {
         role: &Role,
         key: RoleKey,
         book: &FontBook,
+        document: &iced::Font,
     ) -> Arc<[Span<'static>]> {
         let cache_key = (Arc::as_ptr(spans) as *const () as usize, key);
 
@@ -79,7 +80,7 @@ impl SpanStyler {
             return Arc::clone(cached);
         }
 
-        let styled = style_spans(spans, role, book);
+        let styled = style_spans(spans, role, book, document);
         self.cache
             .borrow_mut()
             .insert(cache_key, Arc::clone(&styled));
@@ -91,12 +92,15 @@ impl SpanStyler {
     }
 }
 
-fn style_spans(spans: &[Span<'static>], role: &Role, book: &FontBook) -> Arc<[Span<'static>]> {
-    let base = book.role_font(role, role.weight, Style::Normal);
-
+fn style_spans(
+    spans: &[Span<'static>],
+    role: &Role,
+    book: &FontBook,
+    document: &iced::Font,
+) -> Arc<[Span<'static>]> {
     spans
         .iter()
-        .flat_map(|span| style_span(span, role, book, base.as_ref()))
+        .flat_map(|span| style_span(span, role, book, document))
         .collect::<Vec<_>>()
         .into()
 }
@@ -105,14 +109,14 @@ fn style_span(
     span: &Span<'static>,
     role: &Role,
     book: &FontBook,
-    base: Option<&iced::Font>,
+    document: &iced::Font,
 ) -> Vec<Span<'static>> {
     let explicit = span.font;
-    let weight = explicit.map(|font| font.weight).unwrap_or(role.weight);
-    let style = explicit.map(|font| font.style).unwrap_or(Style::Normal);
+    let weight = span_weight(explicit, document, role.weight);
+    let style = explicit.map_or(Style::Normal, |font| font.style);
 
     if let Some(font) = explicit
-        && base.is_some_and(|base| base.family != font.family)
+        && font.family != document.family
     {
         let mut span = span.clone();
         span.letter_spacing = (role.letter_spacing > 0.0).then_some(Pixels(role.letter_spacing));
@@ -134,6 +138,13 @@ fn style_span(
     }
 
     styled
+}
+
+fn span_weight(explicit: Option<iced::Font>, document: &iced::Font, role: Weight) -> Weight {
+    match explicit {
+        Some(font) if font.weight != document.weight => font.weight,
+        _ => role,
+    }
 }
 
 #[cfg(test)]
@@ -173,6 +184,13 @@ mod tests {
     #[test]
     fn bold_and_italic_keep_weight_and_style() {
         let book = FontBook::new(&Fonts::default());
+        let document = book
+            .chain_font(
+                &crate::config::FontChain::new(vec!["latin".to_owned()]),
+                Weight::Normal,
+                Style::Normal,
+            )
+            .expect("font");
         let role = Role {
             font_set: None,
             fonts: crate::config::FontChain::new(vec!["latin".to_owned(), "cyrillic".to_owned()]),
@@ -198,7 +216,7 @@ mod tests {
         });
         let spans: Arc<[Span<'static>]> = Arc::from(vec![bold, italic].into_boxed_slice());
 
-        let styled = style_spans(&spans, &role, &book);
+        let styled = style_spans(&spans, &role, &book, &document);
 
         assert_eq!(styled[0].font.map(|font| font.weight), Some(Weight::Bold));
         assert_eq!(styled[1].font.map(|font| font.style), Some(Style::Italic));
@@ -207,6 +225,13 @@ mod tests {
     #[test]
     fn inline_code_span_is_not_resplit() {
         let book = FontBook::new(&Fonts::default());
+        let document = book
+            .chain_font(
+                &crate::config::FontChain::new(vec!["latin".to_owned()]),
+                Weight::Normal,
+                Style::Normal,
+            )
+            .expect("font");
         let role = Role {
             font_set: None,
             fonts: crate::config::FontChain::new(vec!["latin".to_owned(), "cyrillic".to_owned()]),
@@ -229,7 +254,7 @@ mod tests {
         let span = Span::new("Hello, мир".to_owned()).font(code_font);
         let spans: Arc<[Span<'static>]> = Arc::from(vec![span].into_boxed_slice());
 
-        let styled = style_spans(&spans, &role, &book);
+        let styled = style_spans(&spans, &role, &book, &document);
 
         assert_eq!(styled.len(), 1);
         assert_eq!(styled[0].font, Some(code_font));
@@ -239,6 +264,13 @@ mod tests {
     #[test]
     fn role_letter_spacing_is_written_to_spans() {
         let book = FontBook::new(&Fonts::default());
+        let document = book
+            .chain_font(
+                &crate::config::FontChain::new(vec!["latin".to_owned()]),
+                Weight::Normal,
+                Style::Normal,
+            )
+            .expect("font");
         let mut role = Role {
             font_set: None,
             fonts: crate::config::FontChain::new(vec!["latin".to_owned()]),
@@ -254,9 +286,9 @@ mod tests {
         let span = Span::new("text".to_owned());
         let spans: Arc<[Span<'static>]> = Arc::from(vec![span].into_boxed_slice());
 
-        let styled = style_spans(&spans, &role, &book);
+        let styled = style_spans(&spans, &role, &book, &document);
         role.letter_spacing = 0.0;
-        let plain = style_spans(&spans, &role, &book);
+        let plain = style_spans(&spans, &role, &book, &document);
 
         assert_eq!(styled[0].letter_spacing, Some(iced::Pixels(0.5)));
         assert!(plain[0].letter_spacing.is_none());
@@ -265,6 +297,13 @@ mod tests {
     #[test]
     fn spans_get_script_fonts_and_preserve_links() {
         let book = FontBook::new(&Fonts::default());
+        let document = book
+            .chain_font(
+                &crate::config::FontChain::new(vec!["latin".to_owned()]),
+                Weight::Normal,
+                Style::Normal,
+            )
+            .expect("font");
         let role = Role {
             font_set: None,
             fonts: crate::config::FontChain::new(vec!["latin".to_owned(), "cyrillic".to_owned()]),
@@ -280,12 +319,45 @@ mod tests {
         let span = Span::new("Hello, мир".to_owned()).link("https://example.com".to_owned());
         let spans: Arc<[Span<'static>]> = Arc::from(vec![span].into_boxed_slice());
 
-        let styled = style_spans(&spans, &role, &book);
+        let styled = style_spans(&spans, &role, &book, &document);
 
         assert_eq!(styled.len(), 2);
         assert_eq!(styled[0].text.as_ref(), "Hello, ");
         assert_eq!(styled[1].text.as_ref(), "мир");
         assert_eq!(styled[0].link.as_deref(), styled[1].link.as_deref());
         assert_ne!(styled[0].font, styled[1].font);
+    }
+
+    #[test]
+    fn heading_plain_span_takes_role_font_and_weight() {
+        let book = FontBook::new(&Fonts::default());
+        let document = book
+            .chain_font(
+                &crate::config::FontChain::new(vec!["latin".to_owned()]),
+                Weight::Normal,
+                Style::Normal,
+            )
+            .expect("font");
+        let role = Role {
+            font_set: None,
+            fonts: crate::config::FontChain::new(vec!["cyrillic".to_owned()]),
+            size: 32.0,
+            weight: Weight::Semibold,
+            line_height: 1.2,
+            letter_spacing: 0.0,
+            color: crate::config::colors::ColorRef::Palette(
+                crate::config::palette::PaletteKey::Text,
+            ),
+            ligatures: false,
+        };
+        let span = Span::new("Заголовок".to_owned()).font(document);
+        let spans: Arc<[Span<'static>]> = Arc::from(vec![span].into_boxed_slice());
+
+        let styled = style_spans(&spans, &role, &book, &document);
+
+        let font = styled[0].font.expect("font");
+        assert_eq!(font.family, iced::font::Family::Name("Lora"));
+        assert_eq!(font.weight, Weight::Semibold);
+        assert_ne!(font.family, document.family);
     }
 }

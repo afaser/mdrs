@@ -160,7 +160,6 @@ jobs:
 
           gh release create "$tag" "dist/$asset" --draft --verify-tag \
             --title "$tag" --generate-notes
-          exit 1
           gh release edit "$tag" --draft=false
           published=true
 

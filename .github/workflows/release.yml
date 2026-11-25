@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without the v prefix
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Preflight
+        id: preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "${GITHUB_REF_TYPE}" == "branch" ]]
+          branch="${GITHUB_REF_NAME}"
+          cargo_version="$(nix eval --raw --impure --expr '(builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version')"
+          [[ "$cargo_version" == "$VERSION" ]]
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --tags --force origin
+
+          published=false
+          release_json=""
+          if release_json="$(gh release view "$tag" --json isDraft 2>/dev/null)"; then
+            if [[ "$(jq -r .isDraft <<<"$release_json")" == "true" ]]; then
+              gh release delete "$tag" --cleanup-tag --yes
+              git tag -d "$tag" >/dev/null 2>&1 || true
+            else
+              published=true
+            fi
+          fi
+
+          if [[ "$published" == false ]] && git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            git push origin ":refs/tags/$tag"
+            git tag -d "$tag" >/dev/null 2>&1 || true
+          fi
+
+          {
+            echo "tag=$tag"
+            echo "branch=$branch"
+            echo "published=$published"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resume published release
+        if: steps.preflight.outputs.published == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.preflight.outputs.tag }}"
+          branch="${{ steps.preflight.outputs.branch }}"
+          commit="$(git rev-parse "${tag}^{commit}")"
+          git show "${tag}:release.json" >/tmp/release.json
+          jq -e --arg version "$VERSION" \
+            '.version == $version and (.url | type == "string") and (.hash | type == "string")' \
+            /tmp/release.json >/dev/null
+
+          if git merge-base --is-ancestor "$commit" HEAD; then
+            if [[ "$(git rev-parse HEAD)" == "$commit" ]]; then
+              echo "Release pin is the head of $branch"
+              exit 0
+            fi
+            echo "::error::release ${tag} is already published; bump the version for new sources"
+            exit 1
+          fi
+
+          root="$(mktemp -d)"
+          worktree="$root/tree"
+          cleanup() {
+            git worktree remove --force "$worktree" >/dev/null 2>&1 || true
+            rm -rf "$root"
+          }
+          trap cleanup EXIT
+
+          git worktree add --detach "$worktree" "$commit"
+          (
+            cd "$worktree"
+            nix build .#default --print-build-logs
+            [[ "$(nix eval --raw .#default.version)" == "$VERSION" ]]
+            readelf -d result/bin/mdrs | grep -q vulkan-loader
+            readelf -d result/bin/mdrs | grep -q wayland
+          )
+
+          git push origin "$commit:refs/heads/$branch"
+
+      - name: Build and publish
+        if: steps.preflight.outputs.published != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.preflight.outputs.tag }}"
+          branch="${{ steps.preflight.outputs.branch }}"
+          asset="mdrs-x86_64-linux.tar.gz"
+          published=false
+
+          cleanup() {
+            status=$?
+            if [[ "$status" -ne 0 && "$published" == false ]]; then
+              state="$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)"
+              if [[ "$state" == "true" ]]; then
+                gh release delete "$tag" --cleanup-tag --yes >/dev/null 2>&1 || true
+              elif [[ "$state" == "missing" ]]; then
+                git push origin ":refs/tags/$tag" >/dev/null 2>&1 || true
+              fi
+            fi
+          }
+          trap cleanup EXIT
+
+          nix build .#source --print-build-logs
+
+          mkdir -p dist
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            --use-compress-program='gzip -n' -cf "dist/$asset" -C result/bin mdrs
+          hash="$(nix hash file --type sha256 --sri "dist/$asset")"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/${asset}"
+
+          nix build --impure --print-build-logs --expr "
+            let
+              f = builtins.getFlake \"git+file://${PWD}\";
+            in
+            f.lib.mkReleasePackage {
+              version = \"${VERSION}\";
+              src = builtins.path { path = \"${PWD}/dist/${asset}\"; name = \"${asset}\"; };
+            }
+          "
+          test -x result/bin/mdrs
+          readelf -d result/bin/mdrs | grep -q vulkan-loader
+          readelf -d result/bin/mdrs | grep -q wayland
+
+          jq -n --arg version "$VERSION" --arg url "$url" --arg hash "$hash" \
+            '{version: $version, url: $url, hash: $hash}' > release.json
+          git add release.json
+          git commit -m "release ${tag}"
+          git tag -a "$tag" -m "$tag"
+          git push origin "refs/tags/${tag}"
+
+          gh release create "$tag" "dist/$asset" --draft --verify-tag \
+            --title "$tag" --generate-notes
+          gh release edit "$tag" --draft=false
+          published=true
+
+          nix build .#default --print-build-logs
+          [[ "$(nix eval --raw .#default.version)" == "$VERSION" ]]
+          readelf -d result/bin/mdrs | grep -q vulkan-loader
+          readelf -d result/bin/mdrs | grep -q wayland
+          git push origin "HEAD:refs/heads/${branch}"
